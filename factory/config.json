@@ -1,0 +1,47 @@
+{
+  "concurrency": 2,
+  "max_rounds": 3,
+  "base_branch": "main",
+  "remote": "origin",
+  "push": true,
+  "max_builders": 3,
+  "max_work_packages": 6,
+  "routing": {
+    "low":    { "quality": "haiku",  "bugs": "sonnet" },
+    "medium": { "quality": "sonnet", "bugs": "sonnet" },
+    "high":   { "quality": "sonnet", "bugs": "opus" }
+  },
+  "surface_reviewers": {
+    "frontend": { "ux": "sonnet", "ui": "haiku", "appsec": "opus" },
+    "backend":  { "backend": "sonnet", "appsec": "opus" },
+    "database": { "dba": "sonnet", "appsec": "opus" },
+    "ops":      { "ops": "sonnet", "opsec": "opus" },
+    "security": { "appsec": "opus", "opsec": "opus" }
+  },
+  "path_surfaces": {
+    "*Dockerfile*": "ops",
+    "*Containerfile*": "ops",
+    "*compose*.yml": "ops",
+    "*compose*.yaml": "ops",
+    "*.container": "ops",
+    "*.pod": "ops",
+    "*.service": "ops",
+    "*.timer": "ops",
+    "*.socket": "ops",
+    "deploy/*": "ops",
+    "infra/*": "ops",
+    ".github/workflows/*": "ops",
+    "*migrations/*": "database",
+    "*.sql": "database"
+  },
+  "protected_paths": [
+    "factory/*",
+    ".claude/*"
+  ],
+  "ports": { "base": 5100, "step": 10, "offsets": { "builder": 0, "ux": 1, "ui": 2, "packages": 3 } },
+  "prices_usd_per_mtok": {
+    "claude-opus-5-5":   { "input": 4.0,  "output": 20.0, "cache_write_5m": 5.0,  "cache_write_1h": 8.0,  "cache_read": 0.20 },
+    "claude-sonnet-5-5": { "input": 2.0,  "output": 10.0, "cache_write_5m": 2.5,  "cache_write_1h": 4.0,  "cache_read": 0.20 },
+    "claude-haiku-5-5":  { "input": 0.10, "output": 0.50, "cache_write_5m": 0.125, "cache_write_1h": 0.20, "cache_read": 0.01 }
+  }
+}
