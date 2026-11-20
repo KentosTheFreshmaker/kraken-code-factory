@@ -39,6 +39,7 @@ Copy these files to the same paths in the project, unchanged:
 .claude/agents/reviewer-opsec.md
 factory/config.json
 factory/checks.sh
+factory/preview.sh
 factory/bin/job
 factory/bin/gate
 factory/bin/route
@@ -47,7 +48,7 @@ factory/dashboard.html
 
 If the project already has `.claude/settings.json`, merge the `permissions.deny`
 entries into it instead of replacing it. Then
-`chmod +x factory/checks.sh factory/bin/job factory/bin/gate factory/bin/route`.
+`chmod +x factory/checks.sh factory/preview.sh factory/bin/job factory/bin/gate factory/bin/route`.
 
 Don't copy `README.md`, `DESIGN.md`, `INSTALL.md` or `LICENSE`.
 
@@ -61,6 +62,20 @@ config. The script runs with a job's worktree as its working directory. It
 must be non-interactive, must not rewrite files, and must exit non-zero on
 any failure. Keep `set -euo pipefail`.
 
+**`factory/preview.sh`** (optional). If the user wants previews of a job's
+branch, replace its two placeholder branches with the project's commands: `up`
+starts the stack from the job's worktree, detached, and prints the URL(s);
+`down` stops it and removes what `up` created. Use the variables the script
+provides: `$NAME` as the compose project and container/image prefix, so
+previews of different jobs never collide, and `$PORT` for the published port,
+bound to `127.0.0.1`. The worktree holds unmerged code, so the preview must
+use local, throwaway config and data: never production services, databases or
+credentials, and nothing that deploys or publishes. Ask the user what a
+preview of their stack should be. If they don't want one, leave the
+placeholder: it only says it isn't configured. Don't remove the `ask` rules
+for it from `.claude/settings.json`; they make each run need the user's
+approval.
+
 **`factory/config.json`.**
 
 - `base_branch` and `remote`: the default branch and its remote.
@@ -70,7 +85,8 @@ any failure. Keep `set -euo pipefail`.
   Quadlet, CI), database (migrations, schema) and, where useful, `security`
   (auth modules). fnmatch patterns, where `*` also matches `/`.
 - `protected_paths`: keep the factory entries; don't add tests.
-- `ports`: move `base` if the project already uses ports 5100–5199.
+- `ports`: move `base` if the project already uses ports 5100–5199. Each job
+  uses `base + step·n` plus an offset; `offsets.preview` is the preview's.
 - Leave `concurrency`, `max_rounds`, `max_builders`, `routing` and
   `surface_reviewers` as they are unless the user asks.
 
@@ -117,7 +133,9 @@ copies too; exclude `.worktrees/` in its config.
 ## 3. Verify
 
 1. `bash factory/checks.sh` exits 0 on the current branch.
-2. `factory/bin/job queue` runs without an error.
+2. `factory/bin/job queue` runs without an error, and `factory/preview.sh`
+   with no arguments prints its usage line and exits 1. Don't run a real
+   preview while installing.
 3. Each file in `.claude/agents/` has only the frontmatter keys `name`,
    `description`, `tools`, `model`, and `hooks` on the builder.
 4. `python3 -m json.tool factory/config.json` and
@@ -135,3 +153,6 @@ so the install must be there before the first run. Then tell the user:
   `needs-human` (the approver's reasons). Feedback from their PR review goes
   back with `/factory <feedback>`; `/factory close <n>` once a PR is merged.
 - Start with `concurrency: 1` and `max_builders: 1` until they trust it.
+- If `factory/preview.sh` is set up, `/factory preview <n>` runs a job's branch
+  locally (and `/factory preview <n> down` stops it). Only they trigger it,
+  and Claude Code asks them to approve each run.

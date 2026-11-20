@@ -23,8 +23,11 @@ intake (opus) ── NEEDS-INFO → asks you in the session, runs again with you
         ▼ ACCEPT, maybe rescoped; rates risk, surfaces, split
 route (script)    picks reviewers and models from config.json
         ▼
-spec-writer (opus) → spec.md, optionally split into work packages with disjoint file ownership
+spec-writer (opus) → spec.md, optionally split into work packages with disjoint file ownership;
+        │            lists the decisions that are yours instead of making them
         ▼
+spec review (you) ── overview + your decisions → approve, or send changes back to the spec writer
+        ▼ approved (pinned to the spec's hash)
 builders (opus)    one builder, or parallel package builders → merged in dependency order → integration builder
         ▼            ▲    pushes factory/<job-id>
 gate (script) ─FAIL──┤  factory/checks.sh; no reviewer runs on a failing build
@@ -46,8 +49,22 @@ too. All state lives in `factory/jobs/`, so if the session dies,
 /factory new <request>   queue a request (text, or a path to a file) and start it
 /factory run             drain the queue; also resumes
 /factory run <n>         one job now
+/factory preview <n>     run factory/preview.sh for a job's branch (… down to stop); only when you ask
 /factory <anything>      ask about jobs, answer intake, give feedback (e.g. from your PR review), close or reject a job
 ```
+
+## Spec review
+
+Every spec stops for you before anything is built (`config.json`
+`spec_review`: `always`, `decisions` to stop only when the spec lists open
+decisions or the risk is high, or `never`). The spec writer lists the choices
+that are yours (behaviour users see, data, dependencies and ops, security and
+cost trade-offs, scope) under **Decisions for the operator**, each with
+options and a recommendation. The orchestrator shows a short overview from
+`job spec-overview` and asks you each decision plus approve / request changes
+/ reject. Your approval is saved in `spec-approval.md` with the spec's
+SHA-256, so the build is refused if the spec changes afterwards, and your
+decisions appear in `PR.md`.
 
 ## Reviewers
 
@@ -77,6 +94,7 @@ adds reviewers for what the diff actually touched (a Dockerfile brings in
 factory/
   config.json                 concurrency, rounds, builders, routing, path surfaces, protected paths, prices
   checks.sh                   your repo's checks (fill it in)
+  preview.sh                  optional: start/stop a local preview of a job's branch (fill it in)
   bin/job                     the only writer of job.json; refuses illegal moves; work packages; PR.md
   bin/gate                    runs checks.sh in a job's worktree → round-N/checks.md
   bin/route                   risk + surfaces → the job's reviewers and models
@@ -98,6 +116,10 @@ Open <http://localhost:8000/dashboard.html>.
 - Nothing merges. The factory pushes only `factory/<job-id>` branches, never
   force-pushes, and never runs `gh`; `.claude/settings.json` denies the
   commands that could. The human PR review is the approval.
+- Agents never deploy or preview. `factory/preview.sh` runs only from the
+  orchestrator session when you ask for it, and `.claude/settings.json` makes
+  each run ask for your approval. It runs unmerged code, so keep it local and
+  away from production config.
 - Requests reach agents as quoted data in `request.md`, never in a prompt.
   Intake, which reads it first, has no shell.
 - The gate runs the main checkout's `checks.sh`, so a branch can't edit its
@@ -111,6 +133,7 @@ Modified in November 2026 from the upstream v2 release:
 - Requests come from prompts (`/factory new`) instead of GitHub issues; there is
   no GitHub integration and no `gh` use.
 - Intake runs on Opus instead of Fable.
+- Every spec stops for operator review before it is built.
 - The approver approves or denies and never merges. The factory pushes the
   feature branch and drafts `PR.md`; a human opens and merges the PR.
 - Specs can split into work packages built by parallel builders with enforced

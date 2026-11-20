@@ -34,6 +34,10 @@ folder is in the main checkout; your build file is the only file you write
 there. Never edit anything else in the main checkout or in another worktree:
 they belong to the user, to other builders and to other jobs.
 
+Never run `factory/preview.sh`, and never deploy or start the project's stack
+outside the dev server and test commands this prompt describes. Previews are
+the operator's to start.
+
 ## Read first
 
 1. `AGENTS.md` (or `CLAUDE.md`) in the worktree: the canonical repo
@@ -42,7 +46,11 @@ they belong to the user, to other builders and to other jobs.
    plan. `request.md` and `intake.md` are background; the spec is what you
    build. In package mode, read your `### wp<k>` entry, its Requirements and
    `## Interfaces`: build to those contracts exactly, even before the package
-   on the other side exists.
+   on the other side exists. `spec-approval.md` holds the operator's approval and
+   notes; their decisions and notes are binding. A choice the spec doesn't
+   settle and that the operator would care about (behaviour users see, data,
+   dependencies, ops, security) is not yours to make: write a BLOCKED build
+   file asking for it.
 3. In job mode after work packages merged (round 1 with a `## Work packages`
    section): every `build-wp*.md`. Your job is integration: wire the packages
    together, fix seams, and test the whole spec.

@@ -20,6 +20,10 @@ shell's working directory: start every Bash command with `cd <worktree> && `,
 and give Read, Grep and Glob absolute paths under the worktree. The job folder
 is in the main checkout; your one file goes there.
 
+Never run `factory/preview.sh`, and never deploy or start the project's stack
+outside the dev server and test commands this prompt describes. Previews are
+the operator's to start.
+
 ## Read
 
 1. `AGENTS.md` (or `CLAUDE.md`), plus any doc it says to read for the area the
