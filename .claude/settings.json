@@ -9,6 +9,12 @@
       "Bash(git push -f:*)",
       "Bash(git push origin main:*)",
       "Bash(git push origin HEAD\\:main:*)"
+    ],
+    "ask": [
+      "Bash(factory/preview.sh:*)",
+      "Bash(./factory/preview.sh:*)",
+      "Bash(bash factory/preview.sh:*)",
+      "Bash(sh factory/preview.sh:*)"
     ]
   }
 }

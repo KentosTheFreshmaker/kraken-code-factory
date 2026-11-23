@@ -25,22 +25,25 @@ bullets, so a human can skim a job on the dashboard.
 | State | `factory/jobs/<job-id>/` | `job.json` plus every agent's file. Gitignored. |
 | Spine | `factory/bin/job`, `gate`, `route` | Deterministic. `job` is the only writer of `job.json` and refuses illegal moves. |
 | Checks | `factory/checks.sh` | The repo's test, lint, typecheck and build commands. |
-| Exit | the pushed branch + `PR.md` | You open the PR and merge it through your own review. |
+| Exit | the pushed branch + `PR.md` (+ `REVIEW.md` for you) | You open the PR and merge it through your own review. |
 
 ## Stages
 
 ```
-queued → intake → spec → build → gate → review → approve → ready
+queued → intake → spec → spec-review → build → gate → review → approve → ready
             │                      │       │          └──→ needs-human (DENY)
             └→ needs-info ─┐       └───────┴→ build (next round) / needs-human (rounds exhausted)
                (answer) ←──┘
+spec-review → build (approved) | spec (changes) | rejected
 ready → build (feedback from your PR review) | closed
 needs-human → build (feedback) | rejected
 ```
 
 The legal moves are `TRANSITIONS` at the top of `factory/bin/job`. `queued`,
-`needs-info`, `needs-human` and `ready` wait on you and hold no concurrency
-slot; `closed` and `rejected` are done.
+`needs-info`, `spec-review`, `needs-human` and `ready` wait on you and hold no
+concurrency slot; `closed` and `rejected` are done. When you answer a waiting
+job and no slot is free, the move is recorded as `pending` and `job start`
+makes it once a slot frees.
 
 ## Decisions
 
@@ -52,6 +55,14 @@ runs again. Nothing depends on an issue tracker.
 **Opus at the door.** Intake runs on Opus. It decides whether the request is
 worth building, rescopes it, rates risk and surfaces, and says whether it
 splits.
+
+**You make the spec's decisions.** The spec writer surfaces product, data,
+ops, security and scope choices as Decisions for the operator, with options
+and a recommendation, and writes the spec as if the recommendation holds. The
+job parks in `spec-review` until you approve or send changes. The approval
+records the spec's SHA-256, so an edited spec can't slip into the build; the
+builder blocks rather than make a new operator-level choice, and the approver
+denies a change that rests on one you never saw.
 
 **Multiple builders only where it's safe.** The spec writer splits the spec
 into work packages only when their file ownership (`Owns` globs) is disjoint
@@ -86,12 +97,46 @@ merge into the base branch, the builder never runs `gh`, and
 `.claude/settings.json` denies the merge, PR and force-push commands as a
 backstop.
 
-**The PR description is assembled, not written.** `job pr` builds `PR.md`
-from the files: build.md's Summary, Changes, Unit tests and Manual tests;
-the approver's verdict, Why and For the human; the gate's result and commit;
-the review table; and the spec's Assumptions and Out of scope. The approval
-status and test results come from the verdict files, so they can't be
-paraphrased.
+**Previews are the operator's.** `factory/preview.sh <job> [up|down]` is
+optional, project-specific like `checks.sh`, and protected so a branch can't
+change what its preview runs. It isn't a pipeline stage. The orchestrator runs
+it only when you ask for a specific job, every run needs your approval (an
+`ask` permission rule), and every agent prompt forbids it, so "the factory
+never deploys" holds for agents and a preview of your own stack stays your
+action. It gets its own port per job (`ports.offsets.preview`) and a unique
+`$NAME` for the compose project, so previews of different jobs don't collide.
+
+**Defects in touched code get fixed here.** Reviewers raise a real defect in
+code the branch touches as CHANGES even if it predates the branch, the bug
+reviewer looks for the same pattern in sibling code, the builder fixes it
+there too, and the approver denies while any review Note still describes one.
+Problems in untouched code and hardening ideas become Follow-ups in
+REVIEW.md, which the orchestrator offers to queue as new requests. This came
+from real runs where defects that reviewers had noted were approved as
+"follow-ups" and came back as operator feedback.
+
+**A QA repository can gate the change.** With `qa_repo`, tests live in a
+second repository: the factory pairs a QA worktree and branch with each job,
+the gate passes its path to `checks.sh` and records the QA commit it tested,
+so a QA branch that moves after the gate is caught like the main branch, and
+`ready` needs both branches pushed. Companion changes (docs, infra, other
+environments) are a separate section, not QA.
+
+**The PR description is assembled, not written, and only holds what a PR
+needs.** `job pr` renders `factory/pr_template.md` (project-specific and
+protected, like `checks.sh`) with placeholders filled from the files: the
+approver's `TITLE:`, build.md's Summary and Changes, the approver's Upgrade
+notes, and a Testing list the script builds. Testing ticks each labelled
+`checks.sh` step that passed in the gate log, with test counts parsed by
+`pr.counts`, ticks one line per test group in build.md's Unit tests and Manual
+tests, and leaves `pr.manual_checks` unticked for the human. `pr.templates`
+can add more outputs, such as a description for a paired QA repo written only
+when that repo has the branch. The factory's own material (job id, verdict and
+why, review table, acceptance criteria, spec approval, assumptions) goes to
+`REVIEW.md` in the job folder instead. Once operator feedback has changed the
+work, the spec's Assumptions and Out of scope may be stale, so REVIEW.md and
+the `{assumptions}` / `{out_of_scope}` placeholders use the approver's
+restatement instead.
 
 **State is files, so runs resume.** If the session dies, `/factory run` reads
 `factory/jobs/` and resumes every job from its stage, including half-built

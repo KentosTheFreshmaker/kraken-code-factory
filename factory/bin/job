@@ -10,16 +10,19 @@ job's feature branch and drafts PR.md; a human opens, reviews and merges the PR.
 Usage:
   job create [--title <title>]   new job from a prompt on stdin; prints the job id (stage: queued)
   job queue                      what /factory run should do with each job
-  job start <job>                queued → intake, when a concurrency slot is free
+  job start <job>                queued → intake, or a waiting job's approved move, when a slot is free
   job advance <job> <stage>      move a job to <stage>, or refuse
   job answer <job>               needs-info → intake, with your answers (stdin) added to request.md
+  job spec-overview <job>        short overview of spec.md for the operator's review
+  job spec-approve <job>         spec-review → build, with your notes (stdin, optional) in spec-approval.md
+  job spec-feedback <job>        spec-review → spec, with your changes (stdin) as spec-feedback-<k>.md
   job wp <job>                   list the job's work packages and which can start
   job wp-start <job> <wp>        create a work package's worktree and branch
   job wp-done <job> <wp>         check a work package and merge it into the job branch
   job feedback <job>             needs-human or ready → build, with your feedback (stdin) as feedback-<k>.md
-  job reject <job>               queued, needs-info or needs-human → rejected, with your reason (stdin)
+  job reject <job>               queued, needs-info, spec-review or needs-human → rejected, with your reason (stdin)
   job close <job>                ready → closed, once the human PR process is finished
-  job pr <job>                   (re)write PR.md from the job's files
+  job pr <job>                   (re)write the PR description(s) and REVIEW.md from the job's files
   job agents <job> <json>        record the routed agent set (called by factory/bin/route)
   job sync <job>                 refresh reviews, gate and cost from the job's files
   job summary [<job>...]         table of jobs: stage, round, branch, cost, time
@@ -29,6 +32,7 @@ Usage:
 
 import fcntl
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -45,12 +49,16 @@ CONFIG = json.loads((FACTORY / "config.json").read_text())
 BASE = CONFIG["base_branch"]
 REMOTE = CONFIG["remote"]
 BASE_REF = f"{REMOTE}/{BASE}"
+# Optional paired QA repository: a second test repository whose suite feeds the gate.
+QA = CONFIG.get("qa_repo") or None
+QA_PATH = (REPO / QA["path"]).resolve() if QA else None
 
 TRANSITIONS = {
     "queued": {"intake", "rejected"},
     "intake": {"needs-info", "rejected", "spec"},
     "needs-info": {"intake", "rejected"},
-    "spec": {"build"},
+    "spec": {"spec-review", "build"},
+    "spec-review": {"build", "spec", "rejected"},
     "build": {"gate", "needs-human"},
     "gate": {"review", "build", "needs-human"},
     "review": {"approve", "build", "needs-human"},
@@ -59,7 +67,7 @@ TRANSITIONS = {
     "ready": {"build", "closed"},
 }
 TERMINAL = {"closed", "rejected"}
-WAITING = {"queued", "needs-info", "needs-human", "ready"}
+WAITING = {"queued", "needs-info", "spec-review", "needs-human", "ready"}
 CONCURRENCY = CONFIG["concurrency"]
 
 
@@ -316,6 +324,9 @@ def parse_packages(job):
         return []
     ids = [p["id"] for p in packages]
     require(len(set(ids)) == len(ids), "spec.md has duplicate work package ids")
+    offsets = CONFIG["ports"]["offsets"]
+    require(offsets["packages"] + CONFIG["max_work_packages"] <= min(offsets["preview"], CONFIG["ports"]["step"]),
+            "config.json max_work_packages makes package ports collide with the preview port or the next job")
     require(len(packages) <= CONFIG["max_work_packages"],
             f"spec.md has {len(packages)} work packages; the limit is {CONFIG['max_work_packages']}")
     for p in packages:
@@ -435,45 +446,200 @@ def route_by_paths(job):
 # ---- PR.md -----------------------------------------------------------------
 
 
-def write_pr(job):
-    """PR.md: a markdown PR description the human pastes into their PR."""
-    d = job_dir(job["id"])
-    rd = round_dir(job)
-    spec, build, decision = d / "spec.md", d / "build.md", d / "decision.md"
-    title = (first_line(spec) or f"# {job['title']}").lstrip("# ").strip()
-    verdict = first_line(decision) or "PENDING"
+STEP_RE = re.compile(r"^==> (RUN|PASS): (.+?)\s*$", re.M)
+
+
+def check_steps(log):
+    """Labelled checks.sh steps from a gate log: [(label, passed, output)], in order."""
+    steps, open_ = [], {}
+    for m in STEP_RE.finditer(log):
+        kind, label = m.groups()
+        if kind == "RUN":
+            open_[label] = m.end()
+        else:
+            begin = open_.pop(label, m.start())
+            steps.append((label, True, log[begin:m.start()]))
+    steps += [(label, False, log[begin:]) for label, begin in open_.items()]
+    return steps
+
+
+def step_counts(label, output):
+    """`(N passed, M skipped)` for a step, from config.json pr.counts, or ''."""
+    pattern = CONFIG["pr"].get("counts", {}).get(label)
+    if not pattern:
+        return ""
+    found = {}
+    for m in re.finditer(pattern, output):
+        for k, v in m.groupdict().items():
+            if v is not None:
+                found[k] = v  # the last summary line wins
+    order = ["passed", "failed", "skipped", "errors", "warnings"]
+    parts = [f"{found[k]} {k}" for k in order if k in found]
+    parts += [f"{v} {k}" for k, v in found.items() if k not in order]
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def bullets(body):
+    """Top-level bullet texts of a markdown section."""
+    items = []
+    for line in (body or "").splitlines():
+        m = re.match(r"^[-*]\s+(?:\[[ xX]\]\s+)?(.*)$", line)
+        if m:
+            items.append(m.group(1).strip())
+        elif items and line.startswith("  ") and line.strip():
+            items[-1] += " " + line.strip()
+    return items
+
+
+def testing_section(job):
+    """Testing, built from the gate log and build.md, never written by hand."""
+    d, rd = job_dir(job["id"]), round_dir(job)
     checks = header(rd / "checks.md") if (rd / "checks.md").exists() else {}
-    commit = git(job, "rev-parse", "HEAD").stdout.strip()
-    na = "_Not recorded._"
+    log = (rd / "checks.log").read_text() if (rd / "checks.log").exists() else ""
+    passed = checks.get("GATE") == "PASS"
+    lines = []
+    for label, ok, output in check_steps(log):
+        lines.append(f"- [{'x' if ok and passed else ' '}] {label}{step_counts(label, output)}")
+    if not lines:
+        lines.append(f"- [{'x' if passed else ' '}] `factory/checks.sh` (commit {checks.get('COMMIT', '')[:7] or '-'})")
+    for heading in ("Unit tests", "Manual tests"):
+        lines += [f"- [x] {item}" for item in bullets(section(d / "build.md", heading))]
+    lines += [f"- [ ] {item}" for item in CONFIG["pr"].get("manual_checks", [])]
+    return "\n".join(lines)
+
+
+def compare_url(job, setting, base, branch, cwd=REPO):
+    if not setting:
+        return ""
+    if setting == "auto":
+        remote = QA["remote"] if QA and cwd != REPO else REMOTE
+        url = run(["git", "remote", "get-url", remote], cwd=cwd, check=False).stdout.strip()
+        m = re.match(r"^(?:git@github\.com:|ssh://git@(?:ssh\.)?github\.com(?::\d+)?/|https://github\.com/)"
+                     r"([^/]+)/(.+?)(?:\.git)?/?$", url)
+        if not m:
+            return ""
+        setting = f"https://github.com/{m.group(1)}/{m.group(2)}/compare/{{base}}...{{branch}}?expand=1"
+    return setting.replace("{base}", base).replace("{branch}", branch)
+
+
+def remote_has_branch(url, branch):
+    res = run(["git", "ls-remote", "--heads", url, branch], check=False)
+    return res.returncode == 0 and bool(res.stdout.strip())
+
+
+def stale_spec(job):
+    """Operator feedback after the build started can make the spec's assumptions stale."""
+    return any(job_dir(job["id"]).glob("feedback-*.md"))
+
+
+def spec_or_restated(job, heading):
+    """The spec's section, or the approver's restatement once feedback made the spec stale."""
+    d = job_dir(job["id"])
+    if stale_spec(job):
+        return section(d / "decision.md", heading) or ""
+    return section(d / "spec.md", heading) or ""
+
+
+def pr_values(job):
+    d = job_dir(job["id"])
+    spec, build, decision = d / "spec.md", d / "build.md", d / "decision.md"
+    dh = header(decision) if decision.exists() else {}
+    title = dh.get("TITLE") or (first_line(spec) or f"# {job['title']}").lstrip("# ").strip()
+    none = "None."
+    return {
+        "title": title,
+        "summary": section(build, "Summary") or none,
+        "changes": section(build, "Changes") or none,
+        "upgrade_notes": section(decision, "Upgrade notes") or none,
+        "qa_changes": section(decision, "QA changes") or none,
+        "companion_changes": section(decision, "Companion changes") or none,
+        "qa_branch": job["branch"] if QA and qa_commits(job) else "",
+        "qa_commit": qa_head(job)[:7],
+        "repo_name": REPO.name,
+        "testing": testing_section(job),
+        "assumptions": spec_or_restated(job, "Assumptions") or none,
+        "out_of_scope": spec_or_restated(job, "Out of scope") or none,
+        "verdict": first_line(decision) or "PENDING",
+        "branch": job["branch"],
+        "base": BASE,
+        "commit": git(job, "rev-parse", "HEAD").stdout.strip()[:7],
+        "job_id": job["id"],
+    }
+
+
+def render(template, values):
+    """Replace {name} placeholders; unknown braces are left alone.
+
+    `{?name}...{/name}` keeps its contents only when `name` has a value other
+    than "None." (or empty), so optional sections disappear when unused.
+    """
+    empty = lambda v: not v or v.strip().rstrip(".").lower() == "none"
+    out = re.sub(r"\{\?(\w+)\}(.*?)\{/\1\}",
+                 lambda m: "" if empty(values.get(m.group(1), "")) else m.group(2), template, flags=re.S)
+    for k, v in values.items():
+        out = out.replace("{" + k + "}", v)
+    return re.sub(r"\n{3,}", "\n\n", out).strip() + "\n"
+
+
+def write_pr(job):
+    """Write each configured PR description (config.json pr.templates) and REVIEW.md."""
+    d = job_dir(job["id"])
+    values = pr_values(job)
+    written = []
+    for t in CONFIG["pr"]["templates"]:
+        when = t.get("only_if_remote_branch")
+        branch = t.get("branch", "{branch}").replace("{branch}", job["branch"])
+        qa = t.get("repo") == "qa"
+        skip = (when and not remote_has_branch(when, branch)) or (qa and not (QA and qa_commits(job)))
+        if skip:
+            (d / t["output"]).unlink(missing_ok=True)
+            continue
+        cwd = Path(qa_worktree(job)) if qa else REPO
+        base = t.get("base", QA["base"] if qa else BASE)
+        v = dict(values, compare_url=compare_url(job, t.get("compare_url", "auto"), base, branch, cwd),
+                 template_branch=branch, template_base=base)
+        (d / t["output"]).write_text(render((REPO / t["template"]).read_text(), v))
+        written.append(t["output"])
+    write_review(job, values, written)
+    return written
+
+
+def write_review(job, values, written):
+    """REVIEW.md: the factory's own record for the operator, kept out of the PR body."""
+    d = job_dir(job["id"])
+    decision, approval = d / "decision.md", d / "spec-approval.md"
+    v = values["verdict"]
     lines = [
-        f"# {title}", "",
-        f"Factory job `{job['id']}` · branch `{job['branch']}` · commit `{commit[:7]}` · round {job['round']}", "",
-        "## Summary", section(build, "Summary") or na, "",
-        "## Changes", section(build, "Changes") or na, "",
+        f"# Review: {values['title']}", "",
+        f"Job `{job['id']}` · branch `{job['branch']}` · commit `{values['commit']}` · round {job['round']}"
+        f" · cost ${job.get('cost_usd', 0):.2f}", "",
+        f"PR descriptions: {', '.join(written) or 'none written'}", "",
         "## Factory approval",
-        f"**{'APPROVED' if verdict == 'APPROVE' else 'DENIED' if verdict == 'DENY' else verdict}** "
-        f"by the factory approver. A human review of this PR is still required.", "",
-        section(decision, "Why") or na, "",
+        f"**{'APPROVED' if v == 'APPROVE' else 'DENIED' if v == 'DENY' else v}** by the factory approver.", "",
+        section(decision, "Why") or "_No reason recorded._", "",
     ]
     human = section(decision, "For the human")
     if human:
-        lines += ["### For the reviewer", human, ""]
-    lines += [
-        "## Tests",
-        f"### Unit / automated",
-        f"- `factory/checks.sh`: **{checks.get('GATE', 'not run')}** at commit `{checks.get('COMMIT', '')[:7]}` "
-        f"(round {job['round']})", "",
-        section(build, "Unit tests") or na, "",
-        "### Manual", section(build, "Manual tests") or na, "",
-        "## Reviews", "", "| Reviewer | Verdict |", "|---|---|",
-    ]
-    lines += [f"| {r} | {v} |" for r, v in job["reviews"].items()]
-    lines += ["", "## Acceptance criteria", section(decision, "Acceptance criteria") or na, ""]
-    for heading in ("Assumptions", "Out of scope"):
-        body = section(spec, heading)
-        if body:
-            lines += [f"## {heading}", body, ""]
-    (d / "PR.md").write_text("\n".join(lines).rstrip() + "\n")
+        lines += ["## For the reviewer", human, ""]
+    follow = section(decision, "Follow-ups")
+    if follow and follow.rstrip(".").lower() != "none":
+        lines += ["## Follow-ups", "Not fixed here. Queue any you want with `/factory new`.", "", follow, ""]
+    if QA:
+        lines += ["## QA branch", f"`{job['branch']}` in `{QA['path']}`: "
+                  + (f"{qa_commits(job)} commit(s), head `{values['qa_commit']}`" if qa_commits(job)
+                     else "no QA changes"), ""]
+    lines += ["## Reviews", "", "| Reviewer | Verdict |", "|---|---|"]
+    lines += [f"| {r} | {verdict} |" for r, verdict in job["reviews"].items()]
+    lines += ["", "## Acceptance criteria", section(decision, "Acceptance criteria") or "_Not recorded._", ""]
+    if approval.exists():
+        lines += ["## Spec approved by the operator", section(approval, "Decisions approved") or "None.", ""]
+        notes = section(approval, "Operator notes")
+        if notes and notes != "None.":
+            lines += ["Operator notes:", notes, ""]
+    note = " (restated by the approver after feedback)" if stale_spec(job) else ""
+    lines += [f"## Assumptions{note}", values["assumptions"], "",
+              f"## Out of scope{note}", values["out_of_scope"], ""]
+    (d / "REVIEW.md").write_text("\n".join(lines).rstrip() + "\n")
 
 
 # ---- Transitions -----------------------------------------------------------
@@ -504,6 +670,70 @@ def next_round(job):
     job["reviews"] = {}
 
 
+def qa_worktree(job):
+    """The job's paired QA worktree path, or None when no qa_repo is configured."""
+    return str(REPO / ".worktrees" / f"{job['id']}-qa") if QA else None
+
+
+def qa_git(job, *args, check=True):
+    return git_in(qa_worktree(job), *args, check=check)
+
+
+def qa_base_ref():
+    return f"{QA['remote']}/{QA['base']}"
+
+
+def ensure_qa_worktree(job):
+    """Create the paired QA worktree on a branch named like the job branch, once."""
+    if not QA or Path(qa_worktree(job)).exists():
+        return
+    require((QA_PATH / ".git").exists(), f"config.json qa_repo.path {QA['path']} isn't a git checkout")
+    git_in(QA_PATH, "fetch", QA["remote"], QA["base"])
+    exists = git_in(QA_PATH, "rev-parse", "--verify", "--quiet", f"refs/heads/{job['branch']}", check=False)
+    if exists.returncode == 0:
+        git_in(QA_PATH, "worktree", "add", qa_worktree(job), job["branch"])
+    else:
+        git_in(QA_PATH, "worktree", "add", "-b", job["branch"], qa_worktree(job), qa_base_ref())
+    job["qa_worktree"] = qa_worktree(job)
+
+
+def qa_commits(job):
+    """Commits on the QA branch on top of the QA base, 0 when there is no QA worktree."""
+    if not QA or not Path(qa_worktree(job)).exists():
+        return 0
+    return int(qa_git(job, "rev-list", "--count", f"{qa_base_ref()}..HEAD").stdout)
+
+
+def qa_head(job):
+    if not QA or not Path(qa_worktree(job)).exists():
+        return ""
+    return qa_git(job, "rev-parse", "HEAD").stdout.strip()
+
+
+def check_qa_ready(job):
+    """The QA branch is clean and, when it has commits, pushed."""
+    if not QA or not Path(qa_worktree(job)).exists():
+        return
+    require(not qa_git(job, "status", "--porcelain").stdout.strip(),
+            f"the QA worktree {qa_worktree(job)} has uncommitted changes")
+    if qa_commits(job) and CONFIG["push"]:
+        qa_git(job, "fetch", QA["remote"], job["branch"], check=False)
+        head = qa_head(job)
+        res = qa_git(job, "rev-parse", f"{QA['remote']}/{job['branch']}", check=False)
+        remote = res.stdout.strip() if res.returncode == 0 else ""
+        require(head == remote, f"QA branch {job['branch']} isn't pushed: local {head[:7]}, "
+                                f"{QA['remote']} {remote[:7] or 'missing'}")
+
+
+def check_gated_commits(job):
+    """The job branch and the QA branch are still the commits the gate checked."""
+    h = header(round_dir(job) / "checks.md")
+    require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
+            "the branch moved after the gate; it must be gated and reviewed again")
+    require(h.get("QA-COMMIT", "") == qa_head(job),
+            "the QA branch moved after the gate; it must be gated and reviewed again")
+
+
 def check_pushed(job):
     if not CONFIG["push"]:
         return
@@ -519,19 +749,35 @@ def newest_feedback_after(d, path):
     return bool(feedback) and (not path.exists() or feedback[-1].stat().st_mtime > path.stat().st_mtime)
 
 
+def spec_sha(job):
+    return hashlib.sha256((job_dir(job["id"]) / "spec.md").read_bytes()).hexdigest()
+
+
+def open_decisions(job):
+    """True when spec.md lists decisions for the operator (anything but "None.")."""
+    body = section(job_dir(job["id"]) / "spec.md", "Decisions for the operator") or ""
+    return bool(body) and body.rstrip(".").strip().lower() != "none"
+
+
+def spec_review_needed(job):
+    mode = CONFIG["spec_review"]
+    require(mode in {"always", "decisions", "never"}, f"config.json spec_review is {mode!r}")
+    return mode == "always" or (mode == "decisions" and (open_decisions(job) or job["intake"]["risk"] == "high"))
+
+
 def advance(job, stage):
     old = job["stage"]
     require(stage in TRANSITIONS.get(old, set()), f"{job['id']}: {old} → {stage} is not a legal transition")
     d = job_dir(job["id"])
     decision = header(d / "intake.md").get("DECISION") if (d / "intake.md").exists() else None
+    if old in WAITING and stage not in TERMINAL | WAITING:
+        require_slot(job["id"])
 
     if old == "queued":
-        if stage == "intake":
-            require_slot(job["id"])
-        else:
+        if stage != "intake":
             require((d / "rejection.md").exists(), "use `job reject` to reject a queued job")
 
-    elif stage == "rejected":  # from intake, needs-info or needs-human
+    elif stage == "rejected":  # from intake, needs-info, spec-review or needs-human
         if old == "intake":
             require(decision == "REJECT", f"intake.md says DECISION: {decision}, not REJECT")
         else:
@@ -548,15 +794,35 @@ def advance(job, stage):
 
     elif old == "needs-info":
         require(job.get("answered"), "use `job answer` to answer intake's questions")
-        require_slot(job["id"])
         k = len(list(d.glob("intake-*.md"))) + 1
         (d / "intake.md").rename(d / f"intake-{k}.md")
         job["intake"], job["answered"] = None, False
 
     elif old == "spec":
         require((d / "spec.md").exists(), "spec.md doesn't exist")
-        job["packages"] = parse_packages(job)
-        next_round(job)
+        job["packages"] = parse_packages(job)  # refuse a bad split before anyone reviews it
+        if stage == "build":
+            require(not spec_review_needed(job),
+                    f"spec_review is {CONFIG['spec_review']!r}: go to spec-review for the operator")
+            ensure_qa_worktree(job)
+            next_round(job)
+        else:
+            job["spec_sha"] = spec_sha(job)
+
+    elif old == "spec-review":
+        if stage == "build":
+            approval = d / "spec-approval.md"
+            require(approval.exists(), "use `job spec-approve` to approve the spec")
+            require(header(approval).get("SPEC-SHA256") == spec_sha(job),
+                    "spec.md changed after it was approved; review it again")
+            job["packages"] = parse_packages(job)
+            ensure_qa_worktree(job)
+            next_round(job)
+        else:  # → spec, with the operator's changes
+            feedback = sorted(d.glob("spec-feedback-*.md"), key=lambda p: int(p.stem.rsplit("-", 1)[1]))
+            require(feedback and feedback[-1].stat().st_mtime > (d / "spec.md").stat().st_mtime,
+                    "use `job spec-feedback` to send the spec back")
+            (d / "spec-approval.md").unlink(missing_ok=True)
 
     elif old == "build" and stage == "gate":
         open_wps = [p["id"] for p in job["packages"] if p["status"] != "done"]
@@ -567,6 +833,7 @@ def advance(job, stage):
         require(int(git(job, "rev-list", "--count", f"{BASE_REF}..HEAD").stdout) > 0,
                 f"{job['branch']} has no commits on top of {BASE_REF}")
         check_pushed(job)
+        check_qa_ready(job)
 
     elif old == "build":  # → needs-human
         blocked = [p for p in job["packages"] if p["status"] == "blocked"]
@@ -583,7 +850,8 @@ def advance(job, stage):
         checks = round_dir(job) / "checks.md"
         require(checks.exists(), f"run the gate first: factory/bin/gate {job['id']}")
         h = header(checks)
-        require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
+        require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip()
+                and h.get("QA-COMMIT", "") == qa_head(job),
                 "checks.md was written for another commit; run the gate again")
         if stage == "review":
             require(h.get("GATE") == "PASS", "the gate didn't pass")
@@ -622,10 +890,9 @@ def advance(job, stage):
         want = "APPROVE" if stage == "ready" else "DENY"
         line = first_line(d / "decision.md")
         require(line == want, f"decision.md starts with {line!r}, not {want}")
-        checks = header(round_dir(job) / "checks.md")
-        require(checks.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
-                "the branch moved after the gate; it must be gated and reviewed again")
+        check_gated_commits(job)
         check_pushed(job)
+        check_qa_ready(job)
 
     elif stage == "build":  # from needs-human or ready, with feedback
         since = d / ("PR.md" if old == "ready" else "decision.md")
@@ -652,8 +919,15 @@ def advance(job, stage):
                                         check=False).returncode == 0
         if not pushed:
             run(["git", "branch", "-D", job["branch"]], check=False)
+        if QA and Path(qa_worktree(job)).exists():
+            git_in(QA_PATH, "worktree", "remove", "--force", qa_worktree(job), check=False)
+            qa_pushed = CONFIG["push"] and git_in(QA_PATH, "rev-parse", "--verify",
+                                                  f"{QA['remote']}/{job['branch']}", check=False).returncode == 0
+            if not qa_pushed:
+                git_in(QA_PATH, "branch", "-D", job["branch"], check=False)
 
     job["stage"] = stage
+    job["pending"] = None
     job["ended"] = now() if stage in TERMINAL | WAITING else None
     return job
 
@@ -683,7 +957,7 @@ def cmd_create(text, title=None):
         "worktree": str(REPO / ".worktrees" / job_id),
         "stage": "queued", "round": 0, "round_limit": CONFIG["max_rounds"],
         "intake": None, "agents": None, "packages": [], "gate": None, "reviews": {},
-        "decision": None, "answered": False,
+        "decision": None, "answered": False, "pending": None, "spec_sha": None, "qa_worktree": None,
         "cost_usd": 0.0, "unpriced_models": [], "started": now(), "ended": None,
     }
     save(job)
@@ -700,15 +974,17 @@ def cmd_queue():
         n, s = j["number"], j["stage"]
         if s not in TERMINAL | WAITING:
             rows.append(("resume", n, j["id"], s, f"round {j['round']}"))
-        elif s in {"queued", "needs-info"} and (s == "queued" or j.get("answered")):
+        elif s == "queued" or j.get("pending"):
+            note = "new request" if s == "queued" else f"approved: {s} → {j['pending']}"
             if slots > 0:
-                rows.append(("start" if s == "queued" else "resume", n, j["id"], s,
-                             "new request" if s == "queued" else "answered"))
+                rows.append(("start", n, j["id"], s, note))
                 slots -= 1
             else:
-                rows.append(("hold", n, j["id"], s, f"concurrency {CONCURRENCY} reached"))
+                rows.append(("hold", n, j["id"], s, f"{note}; concurrency {CONCURRENCY} reached"))
         elif s == "needs-info":
             rows.append(("wait", n, j["id"], s, "answer intake's questions"))
+        elif s == "spec-review":
+            rows.append(("wait", n, j["id"], s, "review the spec: approve it or send changes"))
         elif s == "needs-human":
             rows.append(("wait", n, j["id"], s, "read decision.md; give feedback or reject"))
         elif s == "ready":
@@ -729,12 +1005,85 @@ def cmd_answer(job, text):
     with (d / "request.md").open("a") as f:
         f.write(f"\n## Answers, {now()}\n\nIntake asked:\n\n{quote(questions)}\n\nThe requester answered:\n\n{quote(text)}\n")
     job["answered"] = True
-    save(job)
+    move_or_pend(job, "intake", "answered")
+
+
+def move_or_pend(job, stage, what):
+    """Make an approved move out of a waiting stage now, or when a slot frees (`job start`)."""
     try:
-        save(sync(advance(job, "intake")))
-        print(f"{job['id']}: answered, back to intake")
+        save(sync(advance(job, stage)))
+        print(f"{job['id']}: {what}, now {stage}")
     except Refused as e:
-        print(f"{job['id']}: answered; {e}. `job queue` will resume it when a slot frees.")
+        if "concurrency" not in str(e):
+            raise
+        job["pending"] = stage
+        save(job)
+        print(f"{job['id']}: {what}; {e}. `job start` moves it to {stage} when a slot frees.")
+
+
+def cmd_start(job):
+    stage = "intake" if job["stage"] == "queued" else job.get("pending")
+    require(stage, f"{job['id']} is in {job['stage']} with nothing approved to start")
+    try:
+        save(sync(advance(job, stage)))
+    except Refused as e:
+        if job["stage"] == "spec-review" and "changed after it was approved" in str(e):
+            job["pending"] = None  # the approval no longer covers spec.md: back to plain review
+            (job_dir(job["id"]) / "spec-approval.md").unlink(missing_ok=True)
+            save(job)
+        raise
+    print(f"{job['id']}: {stage}")
+
+
+def spec_bullets(path, heading):
+    body = section(path, heading) or ""
+    return [l for l in body.splitlines() if re.match(r"^\s*(\d+\.|[-*])\s", l)]
+
+
+def cmd_spec_overview(job):
+    """A short, fixed-format overview: the facts the operator approves, not the whole spec."""
+    require(job["stage"] == "spec-review", f"{job['id']} is in {job['stage']}, not spec-review")
+    spec = job_dir(job["id"]) / "spec.md"
+    i = job["intake"] or {}
+    criteria = spec_bullets(spec, "Acceptance criteria")
+    unit = sum("(unit)" in c for c in criteria)
+    out = [
+        f"{job['id']}: {(first_line(spec) or '').lstrip('# ')}",
+        f"risk {i.get('risk')}, surfaces {', '.join(i.get('surfaces') or []) or 'none'}, "
+        f"intake rescoped: {'yes' if i.get('rescoped') else 'no'}",
+        f"{len(spec_bullets(spec, 'Requirements'))} requirements, {len(criteria)} acceptance criteria "
+        f"({unit} unit, {len(criteria) - unit} manual), reviewers: {', '.join(job['agents']['reviewers'])}",
+        "", "Summary:", section(spec, "Summary") or "(none)",
+    ]
+    if job["packages"]:
+        out += ["", f"Work packages ({len(job['packages'])}, up to {CONFIG['max_builders']} builders at once):"]
+        out += [f"- {p['id']} {p['area']}: {p['title']} | owns {', '.join(p['owns'])}"
+                + (f" | after {', '.join(p['depends'])}" if p["depends"] else "") for p in job["packages"]]
+    out += ["", "Decisions for the operator:", section(spec, "Decisions for the operator") or "None.",
+            "", "Assumptions:", section(spec, "Assumptions") or "None.",
+            "", "Out of scope:", section(spec, "Out of scope") or "None.",
+            "", f"Full spec: {spec}"]
+    print("\n".join(out))
+
+
+def cmd_spec_approve(job, text):
+    require(job["stage"] == "spec-review", f"{job['id']} is in {job['stage']}, not spec-review")
+    d = job_dir(job["id"])
+    decisions = section(d / "spec.md", "Decisions for the operator") or "None."
+    (d / "spec-approval.md").write_text(
+        f"APPROVED\nSPEC-SHA256: {spec_sha(job)}\n\n## Summary\n- The operator approved the spec at {now()}\n\n"
+        f"## Decisions approved\n{decisions}\n\n## Operator notes\n{text.strip() or 'None.'}\n")
+    move_or_pend(job, "build", "spec approved")
+
+
+def cmd_spec_feedback(job, text):
+    require(job["stage"] == "spec-review", f"{job['id']} is in {job['stage']}, not spec-review")
+    require(text.strip(), "no changes on stdin")
+    d = job_dir(job["id"])
+    k = len(list(d.glob("spec-feedback-*.md"))) + 1
+    (d / f"spec-feedback-{k}.md").write_text(
+        f"# Spec feedback {k}\n\nFrom the operator at spec review. These decisions are binding.\n\n{text.strip()}\n")
+    move_or_pend(job, "spec", f"spec-feedback-{k}.md")
 
 
 def cmd_feedback(job, text):
@@ -745,13 +1094,12 @@ def cmd_feedback(job, text):
     d = job_dir(job["id"])
     k = len(list(d.glob("feedback-*.md"))) + 1
     (d / f"feedback-{k}.md").write_text(f"# Feedback {k}\n\nFrom the operator while the job was {job['stage']}.\n\n{text.strip()}\n")
-    save(sync(advance(sync(job), "build")))
-    print(f"{job['id']}: feedback-{k}.md, round {job['round']}")
+    move_or_pend(sync(job), "build", f"feedback-{k}.md")
 
 
 def cmd_reject(job, text):
-    if job["stage"] not in {"queued", "needs-info", "needs-human"}:
-        die(f"{job['id']} is in {job['stage']}, not queued, needs-info or needs-human")
+    if job["stage"] not in {"queued", "needs-info", "spec-review", "needs-human"}:
+        die(f"{job['id']} is in {job['stage']}, not queued, needs-info, spec-review or needs-human")
     if not text.strip():
         die("no reason on stdin")
     (job_dir(job["id"]) / "rejection.md").write_text(
@@ -803,9 +1151,13 @@ def main(argv):
         elif cmd == "queue" and not args:
             cmd_queue()
         elif cmd == "start" and len(args) == 1:
-            job = advance(resolve(args[0]), "intake")
-            save(job)
-            print(f"{job['id']}: intake")
+            cmd_start(resolve(args[0]))
+        elif cmd == "spec-overview" and len(args) == 1:
+            cmd_spec_overview(resolve(args[0]))
+        elif cmd == "spec-approve" and len(args) == 1:
+            cmd_spec_approve(sync(resolve(args[0])), sys.stdin.read())
+        elif cmd == "spec-feedback" and len(args) == 1:
+            cmd_spec_feedback(sync(resolve(args[0])), sys.stdin.read())
         elif cmd == "advance" and len(args) == 2:
             job = advance(sync(resolve(args[0])), args[1])
             save(sync(job))
@@ -830,8 +1182,9 @@ def main(argv):
             print(f"{job['id']}: closed")
         elif cmd == "pr" and len(args) == 1:
             job = sync(resolve(args[0]))
-            write_pr(job)
-            print(job_dir(job["id"]) / "PR.md")
+            written = write_pr(job)
+            for name in written + ["REVIEW.md"]:
+                print(job_dir(job["id"]) / name)
         elif cmd == "agents" and len(args) == 2:
             cmd_agents(sync(resolve(args[0])), args[1])
         elif cmd == "sync" and len(args) == 1:

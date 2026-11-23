@@ -1,11 +1,13 @@
 {
   "concurrency": 2,
   "max_rounds": 3,
+  "spec_review": "always",
   "base_branch": "main",
   "remote": "origin",
   "push": true,
   "max_builders": 3,
   "max_work_packages": 6,
+  "qa_repo": null,
   "routing": {
     "low":    { "quality": "haiku",  "bugs": "sonnet" },
     "medium": { "quality": "sonnet", "bugs": "sonnet" },
@@ -34,11 +36,21 @@
     "*migrations/*": "database",
     "*.sql": "database"
   },
+  "pr": {
+    "templates": [
+      { "template": "factory/pr_template.md", "output": "PR.md", "compare_url": "auto" },
+      { "template": "factory/pr_qa_template.md", "output": "PR-qa.md", "repo": "qa", "compare_url": "auto" }
+    ],
+    "counts": {
+      "Unit tests": "(?:(?P<passed>\\d+) passed)?(?:, )?(?:(?P<failed>\\d+) failed)?(?:, )?(?:(?P<skipped>\\d+) skipped)?(?= in [\\d.]+s)"
+    },
+    "manual_checks": []
+  },
   "protected_paths": [
     "factory/*",
     ".claude/*"
   ],
-  "ports": { "base": 5100, "step": 10, "offsets": { "builder": 0, "ux": 1, "ui": 2, "packages": 3 } },
+  "ports": { "base": 5100, "step": 10, "offsets": { "builder": 0, "ux": 1, "ui": 2, "packages": 3, "preview": 9 } },
   "prices_usd_per_mtok": {
     "claude-opus-5-5":   { "input": 4.0,  "output": 20.0, "cache_write_5m": 5.0,  "cache_write_1h": 8.0,  "cache_read": 0.20 },
     "claude-sonnet-5-5": { "input": 2.0,  "output": 10.0, "cache_write_5m": 2.5,  "cache_write_1h": 4.0,  "cache_read": 0.20 },
