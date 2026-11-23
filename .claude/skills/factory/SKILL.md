@@ -71,10 +71,12 @@ through the scripts. `factory/jobs/` is gitignored runtime state.
 <repo>/factory/jobs/<job-id>/round-<N>/checks.md        the gate's verdict for round N
 <repo>/factory/jobs/<job-id>/round-<N>/review-<r>.md    one per routed reviewer
 <repo>/factory/jobs/<job-id>/decision.md       APPROVE | DENY (approver) or ESCALATE (scripts)
-<repo>/factory/jobs/<job-id>/PR.md             the drafted PR description
+<repo>/factory/jobs/<job-id>/PR.md             the drafted PR description (one file per config.json pr.templates entry)
+<repo>/factory/jobs/<job-id>/REVIEW.md         the factory's record for the user: verdict, reviews, criteria, assumptions
 <repo>/factory/jobs/<job-id>/feedback-<k>.md   the user's feedback
 <repo>/.worktrees/<job-id>/                    the job's worktree, on factory/<job-id>
 <repo>/.worktrees/<job-id>-wp<k>/              a work package's worktree, on factory/<job-id>-wp<k>
+<repo>/.worktrees/<job-id>-qa/                 the paired QA worktree (qa_repo only), on a branch named like the job's
 ```
 
 Read `job.json` with `cat` when you need a field. Read agents' files only by
@@ -96,9 +98,14 @@ Every prompt starts with the job's header, built from `job.json`:
 Job: <id>. Job folder: <repo>/factory/jobs/<id>/. Main checkout: <repo>. Worktree: <worktree>. Branch: <branch>. Base: origin/<base>. Request: <number>.
 ```
 
+When `job.json` has a `qa_worktree` (the project has a paired QA repository,
+`config.json` `qa_repo`, and round 1 has started), append
+` QA worktree: <qa_worktree>.` to the header for the job builder, the
+reviewers and the approver. Package builders don't get it.
+
 `<header>` below means that line. Keep `Job folder: <path>/` exactly as shown:
-the job's cost is found by that string. Keep `Worktree: <path>. ` exactly too:
-the builder's stop hook reads it.
+the job's cost is found by that string. Keep `Worktree: <path>. ` and
+`Job: <id>.` exactly too: the builder's stop hook reads them.
 
 Ports, with `n` the job number (`004` → 4) and `base`, `step` and `offsets`
 from `config.json` `ports`: the job builder gets `base + step·n`,
@@ -233,9 +240,12 @@ in. When every reviewer has finished:
 **approve.** When the approver returns, read `decision.md`'s first line:
 
 - `APPROVE`: `factory/bin/job advance <id> ready`. It checks the reviewed
-  commit is the pushed one and writes `PR.md`.
-- `DENY`: `factory/bin/job advance <id> needs-human`. It writes `PR.md` too,
-  marked DENIED.
+  commit is the pushed one, writes the PR description(s) from
+  `factory/pr_template.md` and any other `pr.templates`, and writes
+  `REVIEW.md`. If `decision.md` has no `TITLE:` line, resume the approver once
+  asking for it before advancing.
+- `DENY`: `factory/bin/job advance <id> needs-human`. It writes them too;
+  `REVIEW.md` carries the denial.
 
 A job is finished for this run when it reaches `ready`, `needs-human`,
 `needs-info`, `rejected` or `closed`.
@@ -272,9 +282,13 @@ several jobs.
    `start` and `resume` lines you aren't already running.
 4. When nothing is queued or running, print `factory/bin/job summary <ids>`
    for the jobs this run touched, then list what waits on the user: specs to
-   review, `ready` jobs (branch and `PR.md` path, so they can open the PR),
+   review, `ready` jobs (the PR file paths and the compare link at the top of
+   each: `PR.md`, and `PR-qa.md` when the QA branch has changes, plus
+   `REVIEW.md`, so they can open the PR or PRs),
    `needs-human` jobs (the question in `decision.md`), and `needs-info`
-   questions.
+   questions. For `ready` jobs whose `REVIEW.md` lists Follow-ups, show them
+   and ask whether to queue any as new requests; queue only the ones the user
+   picks, with **/factory new**.
 
 **Resuming.** State lives in files, so a new session picks up where a dead one
 stopped. For a `resume` job, run its stage's step again: `intake` and `spec`

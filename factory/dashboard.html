@@ -406,7 +406,7 @@ function card(job, rounds) {
       ${rounds.length ? `<div class="rounds">${rounds.join('')}</div>` : ''}
       <div class="meta">${meta}</div>
       ${human ? '<div class="hint">read decision.md, then give feedback or reject: /factory &lt;anything&gt;</div>' : ''}
-      ${job.stage === 'ready' ? '<div class="hint">open a PR from the branch with PR.md</div>' : ''}
+      ${job.stage === 'ready' ? '<div class="hint">open the PR with PR.md; see REVIEW.md</div>' : ''}
     </article>`
 }
 
@@ -480,7 +480,7 @@ async function listFiles(dir) {
   return out
 }
 
-const ORDER = ['request.md', 'issue.md', 'intake.md', 'spec.md', 'spec-approval.md', 'build.md', 'decision.md', 'PR.md', 'rejection.md']
+const ORDER = ['request.md', 'issue.md', 'intake.md', 'spec.md', 'spec-approval.md', 'build.md', 'decision.md', 'PR.md', 'REVIEW.md', 'rejection.md']
 const ROUND_ORDER = ['checks', 'review-quality', 'review-bugs', 'review-backend', 'review-dba', 'review-ops', 'review-appsec', 'review-opsec', 'review-ux', 'review-ui']
 
 function fileRank(path) {

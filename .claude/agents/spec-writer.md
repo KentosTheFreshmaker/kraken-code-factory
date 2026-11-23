@@ -29,7 +29,8 @@ the operator's to start.
    the spec from it, not from the request alone. When intake rescoped the
    request, what it left out is out of scope. `SPLIT:` says whether intake
    expects parallel work packages.
-3. `AGENTS.md` (or `CLAUDE.md`) in the worktree: the project overview,
+3. `AGENTS.md` (or `CLAUDE.md`) (in the worktree, or `<main checkout>/AGENTS.md` when the project keeps it
+   untracked): the project overview,
    important paths, commands and conventions, and any doc it says to read
    before touching the area this feature lives in.
 4. The code the feature touches. Find the real files and components; don't
@@ -162,8 +163,8 @@ registration, a nav link) to it rather than forcing an awkward split.
   fallbacks or "nice to have" extras.
 - Reuse what exists. If the repo already has a pattern for this (a component, a
   helper, a doc convention), name it in Context and require it.
-- Include the doc updates the change needs (AGENTS.md and any docs it lists) as
-  requirements.
+- Include the doc updates the change needs (the docs AGENTS.md lists, and
+  AGENTS.md itself only when it's tracked in the repo) as requirements.
 - `factory/checks.sh` runs the repo's tests, lint and build on every round, so
   don't restate it as a criterion. Ask for new unit tests where the repo has a
   test runner and the behaviour can be tested.

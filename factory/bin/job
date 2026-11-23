@@ -22,7 +22,7 @@ Usage:
   job feedback <job>             needs-human or ready → build, with your feedback (stdin) as feedback-<k>.md
   job reject <job>               queued, needs-info, spec-review or needs-human → rejected, with your reason (stdin)
   job close <job>                ready → closed, once the human PR process is finished
-  job pr <job>                   (re)write PR.md from the job's files
+  job pr <job>                   (re)write the PR description(s) and REVIEW.md from the job's files
   job agents <job> <json>        record the routed agent set (called by factory/bin/route)
   job sync <job>                 refresh reviews, gate and cost from the job's files
   job summary [<job>...]         table of jobs: stage, round, branch, cost, time
@@ -49,6 +49,9 @@ CONFIG = json.loads((FACTORY / "config.json").read_text())
 BASE = CONFIG["base_branch"]
 REMOTE = CONFIG["remote"]
 BASE_REF = f"{REMOTE}/{BASE}"
+# Optional paired QA repository: a second test repository whose suite feeds the gate.
+QA = CONFIG.get("qa_repo") or None
+QA_PATH = (REPO / QA["path"]).resolve() if QA else None
 
 TRANSITIONS = {
     "queued": {"intake", "rejected"},
@@ -443,51 +446,200 @@ def route_by_paths(job):
 # ---- PR.md -----------------------------------------------------------------
 
 
-def write_pr(job):
-    """PR.md: a markdown PR description the human pastes into their PR."""
-    d = job_dir(job["id"])
-    rd = round_dir(job)
-    spec, build, decision = d / "spec.md", d / "build.md", d / "decision.md"
-    title = (first_line(spec) or f"# {job['title']}").lstrip("# ").strip()
-    verdict = first_line(decision) or "PENDING"
+STEP_RE = re.compile(r"^==> (RUN|PASS): (.+?)\s*$", re.M)
+
+
+def check_steps(log):
+    """Labelled checks.sh steps from a gate log: [(label, passed, output)], in order."""
+    steps, open_ = [], {}
+    for m in STEP_RE.finditer(log):
+        kind, label = m.groups()
+        if kind == "RUN":
+            open_[label] = m.end()
+        else:
+            begin = open_.pop(label, m.start())
+            steps.append((label, True, log[begin:m.start()]))
+    steps += [(label, False, log[begin:]) for label, begin in open_.items()]
+    return steps
+
+
+def step_counts(label, output):
+    """`(N passed, M skipped)` for a step, from config.json pr.counts, or ''."""
+    pattern = CONFIG["pr"].get("counts", {}).get(label)
+    if not pattern:
+        return ""
+    found = {}
+    for m in re.finditer(pattern, output):
+        for k, v in m.groupdict().items():
+            if v is not None:
+                found[k] = v  # the last summary line wins
+    order = ["passed", "failed", "skipped", "errors", "warnings"]
+    parts = [f"{found[k]} {k}" for k in order if k in found]
+    parts += [f"{v} {k}" for k, v in found.items() if k not in order]
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def bullets(body):
+    """Top-level bullet texts of a markdown section."""
+    items = []
+    for line in (body or "").splitlines():
+        m = re.match(r"^[-*]\s+(?:\[[ xX]\]\s+)?(.*)$", line)
+        if m:
+            items.append(m.group(1).strip())
+        elif items and line.startswith("  ") and line.strip():
+            items[-1] += " " + line.strip()
+    return items
+
+
+def testing_section(job):
+    """Testing, built from the gate log and build.md, never written by hand."""
+    d, rd = job_dir(job["id"]), round_dir(job)
     checks = header(rd / "checks.md") if (rd / "checks.md").exists() else {}
-    commit = git(job, "rev-parse", "HEAD").stdout.strip()
-    na = "_Not recorded._"
+    log = (rd / "checks.log").read_text() if (rd / "checks.log").exists() else ""
+    passed = checks.get("GATE") == "PASS"
+    lines = []
+    for label, ok, output in check_steps(log):
+        lines.append(f"- [{'x' if ok and passed else ' '}] {label}{step_counts(label, output)}")
+    if not lines:
+        lines.append(f"- [{'x' if passed else ' '}] `factory/checks.sh` (commit {checks.get('COMMIT', '')[:7] or '-'})")
+    for heading in ("Unit tests", "Manual tests"):
+        lines += [f"- [x] {item}" for item in bullets(section(d / "build.md", heading))]
+    lines += [f"- [ ] {item}" for item in CONFIG["pr"].get("manual_checks", [])]
+    return "\n".join(lines)
+
+
+def compare_url(job, setting, base, branch, cwd=REPO):
+    if not setting:
+        return ""
+    if setting == "auto":
+        remote = QA["remote"] if QA and cwd != REPO else REMOTE
+        url = run(["git", "remote", "get-url", remote], cwd=cwd, check=False).stdout.strip()
+        m = re.match(r"^(?:git@github\.com:|ssh://git@(?:ssh\.)?github\.com(?::\d+)?/|https://github\.com/)"
+                     r"([^/]+)/(.+?)(?:\.git)?/?$", url)
+        if not m:
+            return ""
+        setting = f"https://github.com/{m.group(1)}/{m.group(2)}/compare/{{base}}...{{branch}}?expand=1"
+    return setting.replace("{base}", base).replace("{branch}", branch)
+
+
+def remote_has_branch(url, branch):
+    res = run(["git", "ls-remote", "--heads", url, branch], check=False)
+    return res.returncode == 0 and bool(res.stdout.strip())
+
+
+def stale_spec(job):
+    """Operator feedback after the build started can make the spec's assumptions stale."""
+    return any(job_dir(job["id"]).glob("feedback-*.md"))
+
+
+def spec_or_restated(job, heading):
+    """The spec's section, or the approver's restatement once feedback made the spec stale."""
+    d = job_dir(job["id"])
+    if stale_spec(job):
+        return section(d / "decision.md", heading) or ""
+    return section(d / "spec.md", heading) or ""
+
+
+def pr_values(job):
+    d = job_dir(job["id"])
+    spec, build, decision = d / "spec.md", d / "build.md", d / "decision.md"
+    dh = header(decision) if decision.exists() else {}
+    title = dh.get("TITLE") or (first_line(spec) or f"# {job['title']}").lstrip("# ").strip()
+    none = "None."
+    return {
+        "title": title,
+        "summary": section(build, "Summary") or none,
+        "changes": section(build, "Changes") or none,
+        "upgrade_notes": section(decision, "Upgrade notes") or none,
+        "qa_changes": section(decision, "QA changes") or none,
+        "companion_changes": section(decision, "Companion changes") or none,
+        "qa_branch": job["branch"] if QA and qa_commits(job) else "",
+        "qa_commit": qa_head(job)[:7],
+        "repo_name": REPO.name,
+        "testing": testing_section(job),
+        "assumptions": spec_or_restated(job, "Assumptions") or none,
+        "out_of_scope": spec_or_restated(job, "Out of scope") or none,
+        "verdict": first_line(decision) or "PENDING",
+        "branch": job["branch"],
+        "base": BASE,
+        "commit": git(job, "rev-parse", "HEAD").stdout.strip()[:7],
+        "job_id": job["id"],
+    }
+
+
+def render(template, values):
+    """Replace {name} placeholders; unknown braces are left alone.
+
+    `{?name}...{/name}` keeps its contents only when `name` has a value other
+    than "None." (or empty), so optional sections disappear when unused.
+    """
+    empty = lambda v: not v or v.strip().rstrip(".").lower() == "none"
+    out = re.sub(r"\{\?(\w+)\}(.*?)\{/\1\}",
+                 lambda m: "" if empty(values.get(m.group(1), "")) else m.group(2), template, flags=re.S)
+    for k, v in values.items():
+        out = out.replace("{" + k + "}", v)
+    return re.sub(r"\n{3,}", "\n\n", out).strip() + "\n"
+
+
+def write_pr(job):
+    """Write each configured PR description (config.json pr.templates) and REVIEW.md."""
+    d = job_dir(job["id"])
+    values = pr_values(job)
+    written = []
+    for t in CONFIG["pr"]["templates"]:
+        when = t.get("only_if_remote_branch")
+        branch = t.get("branch", "{branch}").replace("{branch}", job["branch"])
+        qa = t.get("repo") == "qa"
+        skip = (when and not remote_has_branch(when, branch)) or (qa and not (QA and qa_commits(job)))
+        if skip:
+            (d / t["output"]).unlink(missing_ok=True)
+            continue
+        cwd = Path(qa_worktree(job)) if qa else REPO
+        base = t.get("base", QA["base"] if qa else BASE)
+        v = dict(values, compare_url=compare_url(job, t.get("compare_url", "auto"), base, branch, cwd),
+                 template_branch=branch, template_base=base)
+        (d / t["output"]).write_text(render((REPO / t["template"]).read_text(), v))
+        written.append(t["output"])
+    write_review(job, values, written)
+    return written
+
+
+def write_review(job, values, written):
+    """REVIEW.md: the factory's own record for the operator, kept out of the PR body."""
+    d = job_dir(job["id"])
+    decision, approval = d / "decision.md", d / "spec-approval.md"
+    v = values["verdict"]
     lines = [
-        f"# {title}", "",
-        f"Factory job `{job['id']}` · branch `{job['branch']}` · commit `{commit[:7]}` · round {job['round']}", "",
-        "## Summary", section(build, "Summary") or na, "",
-        "## Changes", section(build, "Changes") or na, "",
+        f"# Review: {values['title']}", "",
+        f"Job `{job['id']}` · branch `{job['branch']}` · commit `{values['commit']}` · round {job['round']}"
+        f" · cost ${job.get('cost_usd', 0):.2f}", "",
+        f"PR descriptions: {', '.join(written) or 'none written'}", "",
         "## Factory approval",
-        f"**{'APPROVED' if verdict == 'APPROVE' else 'DENIED' if verdict == 'DENY' else verdict}** "
-        f"by the factory approver. A human review of this PR is still required.", "",
-        section(decision, "Why") or na, "",
+        f"**{'APPROVED' if v == 'APPROVE' else 'DENIED' if v == 'DENY' else v}** by the factory approver.", "",
+        section(decision, "Why") or "_No reason recorded._", "",
     ]
     human = section(decision, "For the human")
     if human:
-        lines += ["### For the reviewer", human, ""]
-    lines += [
-        "## Tests",
-        f"### Unit / automated",
-        f"- `factory/checks.sh`: **{checks.get('GATE', 'not run')}** at commit `{checks.get('COMMIT', '')[:7]}` "
-        f"(round {job['round']})", "",
-        section(build, "Unit tests") or na, "",
-        "### Manual", section(build, "Manual tests") or na, "",
-        "## Reviews", "", "| Reviewer | Verdict |", "|---|---|",
-    ]
-    lines += [f"| {r} | {v} |" for r, v in job["reviews"].items()]
-    lines += ["", "## Acceptance criteria", section(decision, "Acceptance criteria") or na, ""]
-    approval = d / "spec-approval.md"
+        lines += ["## For the reviewer", human, ""]
+    follow = section(decision, "Follow-ups")
+    if follow and follow.rstrip(".").lower() != "none":
+        lines += ["## Follow-ups", "Not fixed here. Queue any you want with `/factory new`.", "", follow, ""]
+    if QA:
+        lines += ["## QA branch", f"`{job['branch']}` in `{QA['path']}`: "
+                  + (f"{qa_commits(job)} commit(s), head `{values['qa_commit']}`" if qa_commits(job)
+                     else "no QA changes"), ""]
+    lines += ["## Reviews", "", "| Reviewer | Verdict |", "|---|---|"]
+    lines += [f"| {r} | {verdict} |" for r, verdict in job["reviews"].items()]
+    lines += ["", "## Acceptance criteria", section(decision, "Acceptance criteria") or "_Not recorded._", ""]
     if approval.exists():
-        lines += ["## Spec approved by the operator", section(approval, "Decisions approved") or na, ""]
+        lines += ["## Spec approved by the operator", section(approval, "Decisions approved") or "None.", ""]
         notes = section(approval, "Operator notes")
         if notes and notes != "None.":
             lines += ["Operator notes:", notes, ""]
-    for heading in ("Assumptions", "Out of scope"):
-        body = section(spec, heading)
-        if body:
-            lines += [f"## {heading}", body, ""]
-    (d / "PR.md").write_text("\n".join(lines).rstrip() + "\n")
+    note = " (restated by the approver after feedback)" if stale_spec(job) else ""
+    lines += [f"## Assumptions{note}", values["assumptions"], "",
+              f"## Out of scope{note}", values["out_of_scope"], ""]
+    (d / "REVIEW.md").write_text("\n".join(lines).rstrip() + "\n")
 
 
 # ---- Transitions -----------------------------------------------------------
@@ -516,6 +668,70 @@ def next_round(job):
     round_dir(job).mkdir(exist_ok=True)
     job["gate"] = None
     job["reviews"] = {}
+
+
+def qa_worktree(job):
+    """The job's paired QA worktree path, or None when no qa_repo is configured."""
+    return str(REPO / ".worktrees" / f"{job['id']}-qa") if QA else None
+
+
+def qa_git(job, *args, check=True):
+    return git_in(qa_worktree(job), *args, check=check)
+
+
+def qa_base_ref():
+    return f"{QA['remote']}/{QA['base']}"
+
+
+def ensure_qa_worktree(job):
+    """Create the paired QA worktree on a branch named like the job branch, once."""
+    if not QA or Path(qa_worktree(job)).exists():
+        return
+    require((QA_PATH / ".git").exists(), f"config.json qa_repo.path {QA['path']} isn't a git checkout")
+    git_in(QA_PATH, "fetch", QA["remote"], QA["base"])
+    exists = git_in(QA_PATH, "rev-parse", "--verify", "--quiet", f"refs/heads/{job['branch']}", check=False)
+    if exists.returncode == 0:
+        git_in(QA_PATH, "worktree", "add", qa_worktree(job), job["branch"])
+    else:
+        git_in(QA_PATH, "worktree", "add", "-b", job["branch"], qa_worktree(job), qa_base_ref())
+    job["qa_worktree"] = qa_worktree(job)
+
+
+def qa_commits(job):
+    """Commits on the QA branch on top of the QA base, 0 when there is no QA worktree."""
+    if not QA or not Path(qa_worktree(job)).exists():
+        return 0
+    return int(qa_git(job, "rev-list", "--count", f"{qa_base_ref()}..HEAD").stdout)
+
+
+def qa_head(job):
+    if not QA or not Path(qa_worktree(job)).exists():
+        return ""
+    return qa_git(job, "rev-parse", "HEAD").stdout.strip()
+
+
+def check_qa_ready(job):
+    """The QA branch is clean and, when it has commits, pushed."""
+    if not QA or not Path(qa_worktree(job)).exists():
+        return
+    require(not qa_git(job, "status", "--porcelain").stdout.strip(),
+            f"the QA worktree {qa_worktree(job)} has uncommitted changes")
+    if qa_commits(job) and CONFIG["push"]:
+        qa_git(job, "fetch", QA["remote"], job["branch"], check=False)
+        head = qa_head(job)
+        res = qa_git(job, "rev-parse", f"{QA['remote']}/{job['branch']}", check=False)
+        remote = res.stdout.strip() if res.returncode == 0 else ""
+        require(head == remote, f"QA branch {job['branch']} isn't pushed: local {head[:7]}, "
+                                f"{QA['remote']} {remote[:7] or 'missing'}")
+
+
+def check_gated_commits(job):
+    """The job branch and the QA branch are still the commits the gate checked."""
+    h = header(round_dir(job) / "checks.md")
+    require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
+            "the branch moved after the gate; it must be gated and reviewed again")
+    require(h.get("QA-COMMIT", "") == qa_head(job),
+            "the QA branch moved after the gate; it must be gated and reviewed again")
 
 
 def check_pushed(job):
@@ -588,6 +804,7 @@ def advance(job, stage):
         if stage == "build":
             require(not spec_review_needed(job),
                     f"spec_review is {CONFIG['spec_review']!r}: go to spec-review for the operator")
+            ensure_qa_worktree(job)
             next_round(job)
         else:
             job["spec_sha"] = spec_sha(job)
@@ -599,6 +816,7 @@ def advance(job, stage):
             require(header(approval).get("SPEC-SHA256") == spec_sha(job),
                     "spec.md changed after it was approved; review it again")
             job["packages"] = parse_packages(job)
+            ensure_qa_worktree(job)
             next_round(job)
         else:  # → spec, with the operator's changes
             feedback = sorted(d.glob("spec-feedback-*.md"), key=lambda p: int(p.stem.rsplit("-", 1)[1]))
@@ -615,6 +833,7 @@ def advance(job, stage):
         require(int(git(job, "rev-list", "--count", f"{BASE_REF}..HEAD").stdout) > 0,
                 f"{job['branch']} has no commits on top of {BASE_REF}")
         check_pushed(job)
+        check_qa_ready(job)
 
     elif old == "build":  # → needs-human
         blocked = [p for p in job["packages"] if p["status"] == "blocked"]
@@ -631,7 +850,8 @@ def advance(job, stage):
         checks = round_dir(job) / "checks.md"
         require(checks.exists(), f"run the gate first: factory/bin/gate {job['id']}")
         h = header(checks)
-        require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
+        require(h.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip()
+                and h.get("QA-COMMIT", "") == qa_head(job),
                 "checks.md was written for another commit; run the gate again")
         if stage == "review":
             require(h.get("GATE") == "PASS", "the gate didn't pass")
@@ -670,10 +890,9 @@ def advance(job, stage):
         want = "APPROVE" if stage == "ready" else "DENY"
         line = first_line(d / "decision.md")
         require(line == want, f"decision.md starts with {line!r}, not {want}")
-        checks = header(round_dir(job) / "checks.md")
-        require(checks.get("COMMIT") == git(job, "rev-parse", "HEAD").stdout.strip(),
-                "the branch moved after the gate; it must be gated and reviewed again")
+        check_gated_commits(job)
         check_pushed(job)
+        check_qa_ready(job)
 
     elif stage == "build":  # from needs-human or ready, with feedback
         since = d / ("PR.md" if old == "ready" else "decision.md")
@@ -700,6 +919,12 @@ def advance(job, stage):
                                         check=False).returncode == 0
         if not pushed:
             run(["git", "branch", "-D", job["branch"]], check=False)
+        if QA and Path(qa_worktree(job)).exists():
+            git_in(QA_PATH, "worktree", "remove", "--force", qa_worktree(job), check=False)
+            qa_pushed = CONFIG["push"] and git_in(QA_PATH, "rev-parse", "--verify",
+                                                  f"{QA['remote']}/{job['branch']}", check=False).returncode == 0
+            if not qa_pushed:
+                git_in(QA_PATH, "branch", "-D", job["branch"], check=False)
 
     job["stage"] = stage
     job["pending"] = None
@@ -732,7 +957,7 @@ def cmd_create(text, title=None):
         "worktree": str(REPO / ".worktrees" / job_id),
         "stage": "queued", "round": 0, "round_limit": CONFIG["max_rounds"],
         "intake": None, "agents": None, "packages": [], "gate": None, "reviews": {},
-        "decision": None, "answered": False, "pending": None, "spec_sha": None,
+        "decision": None, "answered": False, "pending": None, "spec_sha": None, "qa_worktree": None,
         "cost_usd": 0.0, "unpriced_models": [], "started": now(), "ended": None,
     }
     save(job)
@@ -957,8 +1182,9 @@ def main(argv):
             print(f"{job['id']}: closed")
         elif cmd == "pr" and len(args) == 1:
             job = sync(resolve(args[0]))
-            write_pr(job)
-            print(job_dir(job["id"]) / "PR.md")
+            written = write_pr(job)
+            for name in written + ["REVIEW.md"]:
+                print(job_dir(job["id"]) / name)
         elif cmd == "agents" and len(args) == 2:
             cmd_agents(sync(resolve(args[0])), args[1])
         elif cmd == "sync" and len(args) == 1:
