@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""Regenerate the dashboard's sample jobs in factory/demo/jobs/ (committed).
+
+Usage: factory/demo/make      then open dashboard.html?demo
+
+Every job is invented. Between them they show each stage and each indicator
+the dashboard has. Times are relative to the fixed time DEMO_NOW, which
+dashboard.html uses as the current time in demo mode. Nothing here is read by
+factory/bin/*, which only looks in factory/jobs/.
+"""
+
+import json
+import shutil
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+JOBS = Path(__file__).resolve().parent / "jobs"
+DEMO_NOW = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+MODELS = {"quality": "sonnet", "bugs": "opus", "backend": "sonnet", "dba": "sonnet", "ops": "sonnet",
+          "appsec": "opus", "opsec": "opus", "ux": "sonnet", "ui": "haiku"}
+WAITING = {"queued", "needs-info", "spec-review", "needs-human", "ready", "closed", "rejected"}
+P, C = "PASS", "CHANGES"
+
+
+def ago(minutes):
+    return (DEMO_NOW - timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def doc(first, summary, body=""):
+    bullets = "\n".join(f"- {s}" for s in ([summary] if isinstance(summary, str) else summary))
+    return f"{first}\n\n## Summary\n{bullets}\n" + (f"\n{body.strip()}\n" if body else "")
+
+
+def intake(decision, risk, surfaces, summary, body=""):
+    return doc(f"DECISION: {decision}\nRESCOPED: no\nSPLIT: no\nRISK: {risk}\nSURFACES: {', '.join(surfaces)}", summary, body)
+
+
+def passed(*names):
+    return {n: P for n in names}
+
+
+def job(number, slug, title, stage, *, age, waited=0, risk=None, surfaces=(), rounds=(), reviewers=(),
+        packages=(), decision=None, pending=None, cost=0.0, unpriced=(), files=None, intake_says="ACCEPT"):
+    """Write one job. `rounds` is [(gate, {reviewer: verdict})]; a missing verdict is not written yet."""
+    jid = f"{number:03d}-{slug}"
+    d = JOBS / jid
+    d.mkdir(parents=True)
+    files = {"request.md": f"# Request {number}: {title}\n\n## Request\n\n> {title}, please.\n", **(files or {})}
+    if risk:
+        files.setdefault("intake.md", intake(intake_says, risk, surfaces, "Sample intake for the demo board."))
+    if reviewers:
+        files.setdefault("spec.md", doc(f"# {title}", "Sample spec for the demo board.",
+                                        "## Acceptance criteria\n- [ ] (unit) It works.\n- [ ] (manual) It looks right."))
+    if rounds and any(gate for gate, _ in rounds):
+        files.setdefault("build.md", doc("STATUS: READY", "Sample build notes for the demo board."))
+    if decision:
+        files.setdefault("decision.md", doc(decision, "Sample decision for the demo board."))
+    for n, (gate, reviews) in enumerate(rounds, 1):
+        if gate:
+            files[f"round-{n}/checks.md"] = doc(f"GATE: {gate}\nCOMMIT: {'0' * 40}", f"Sample checks: {gate}.")
+        for r, verdict in reviews.items():
+            first = f"VERDICT: {verdict}" if verdict in (P, C) else verdict
+            files[f"round-{n}/review-{r}.md"] = doc(first, f"Sample {r} review.")
+    gate, reviews = rounds[-1] if rounds else (None, {})
+    # Minutes in this stage, and minutes of running stages before it.
+    since = waited or min(age, 8)
+    active = 0 if stage in {"queued", "intake"} else max(1, int((age - since) * 0.6))
+    data = {
+        "id": jid, "number": number, "title": title, "branch": f"factory/{jid}",
+        "worktree": f"/demo/.worktrees/{jid}", "stage": stage, "round": len(rounds), "round_limit": 3,
+        "intake": {"decision": intake_says, "rescoped": False, "split": bool(packages), "risk": risk,
+                   "surfaces": list(surfaces)} if risk else None,
+        "agents": {"reviewers": {r: MODELS[r] for r in reviewers}} if reviewers else None,
+        "packages": [{"id": f"wp{i}", "title": t, "area": a, "owns": [f"{a}/*"], "depends": [], "status": s,
+                      "branch": f"factory/{jid}-wp{i}", "worktree": f"/demo/.worktrees/{jid}-wp{i}",
+                      "start_commit": None} for i, (t, a, s) in enumerate(packages, 1)],
+        "gate": gate, "reviews": {r: "pending" if r not in reviews else reviews[r] if reviews[r] in (P, C) else "invalid"
+                                  for r in reviewers} if gate == P else {},
+        "decision": decision, "answered": False, "pending": pending, "spec_sha": None, "qa_worktree": None,
+        "cost_usd": cost, "unpriced_models": list(unpriced), "started": ago(age),
+        "ended": ago(waited) if stage in WAITING and stage != "queued" else None,
+        "round_reviewers": {str(n): list(r) if n < len(rounds) else list(reviewers)
+                            for n, (g, r) in enumerate(rounds, 1) if g == P},
+        "stage_since": ago(since), "active_seconds": active * 60,
+    }
+    files["job.json"] = json.dumps(data, indent=2) + "\n"
+    for name, text in files.items():
+        path = d / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text)
+
+
+def main():
+    shutil.rmtree(JOBS, ignore_errors=True)
+    core = ["quality", "bugs"]
+    web = [*core, "ux", "ui", "appsec"]
+    full = [*core, "backend", "dba", "ops", "appsec", "opsec", "ux", "ui"]
+
+    # Done
+    job(1, "fix-typo", "Fix a typo on the welcome page", "closed", age=3000, waited=2900, risk="low",
+        surfaces=["frontend"], reviewers=web, decision="APPROVE", cost=0.84,
+        rounds=[(P, {**passed(*web), "ux": C}), (P, passed(*web))],
+        files={"PR.md": "# Fix a typo\n\n## Summary\n- One word changed.\n"})
+    job(2, "rewrite-in-cobol", "Rewrite the app in COBOL", "rejected", age=2800, waited=2795, risk="high",
+        surfaces=["backend"], cost=0.11, intake_says="REJECT",
+        files={"intake.md": intake("REJECT", "high", ["backend"], "Not worth building: no benefit to users.")})
+
+    # PR ready: many rounds, a failed gate, and reviewers the diff added in round 3
+    job(3, "shared-notebooks-with-permissions", "Share notebooks with per-user permissions", "ready", age=900,
+        waited=45, risk="high", surfaces=["frontend", "backend", "database"], reviewers=full, decision="APPROVE",
+        cost=21.37, rounds=[(P, {**passed(*web), "bugs": C, "appsec": C}), ("FAIL", {}), (P, passed(*full))],
+        files={"PR.md": "# Share notebooks\n\n## Summary\n- Owners can share a notebook.\n",
+               "REVIEW.md": "# Review: Share notebooks\n\n**APPROVED** by the factory approver.\n"})
+
+    # Needs human: a denial, a blocked work package, and feedback waiting for a slot
+    job(4, "delete-account", "Let users delete their account", "needs-human", age=600, waited=120, risk="high",
+        surfaces=["backend", "security"], reviewers=[*core, "backend", "appsec", "opsec"], decision="DENY", cost=9.15,
+        rounds=[(P, passed(*core, "backend", "appsec", "opsec"))],
+        files={"decision.md": doc("DENY", "Deletes shared notes without a warning.", "## Why\nThe spec does not cover shared notes.")})
+    job(5, "offline-mode", "Work offline and sync later", "needs-human", age=500, waited=200, risk="medium",
+        surfaces=["frontend", "backend"], reviewers=[*web, "backend"], decision="ESCALATE", cost=4.62,
+        rounds=[(None, {})],
+        packages=[("Local store", "store", "done"), ("Sync engine", "sync", "blocked"), ("Status bar", "ui", "pending")],
+        files={"build-wp2.md": doc("STATUS: BLOCKED", "The API has no change feed.", "## Blocked\nNeeds a change feed endpoint.")})
+    job(6, "export-to-pdf", "Export a note to PDF", "needs-human", age=480, waited=30, risk="low",
+        surfaces=["backend"], reviewers=[*core, "backend"], decision="ESCALATE", pending="build", cost=3.30,
+        rounds=[("FAIL", {}), ("FAIL", {}), ("FAIL", {})],
+        files={"feedback-1.md": "# Feedback 1\n\nUse the PDF library we already ship.\n"})
+
+    # Approve
+    job(7, "dark-mode", "Add a dark theme", "approve", age=95, risk="low", surfaces=["frontend"], reviewers=web,
+        cost=2.48, rounds=[(P, passed(*web))])
+
+    # Review: mixed verdicts, some pending, one file without a verdict line
+    job(8, "containerise-the-service", "Run the service in a container", "review", age=80, risk="high",
+        surfaces=["ops", "backend"], reviewers=full, cost=6.05,
+        rounds=[(P, {"quality": P, "bugs": C, "backend": P, "ops": P, "appsec": "Looks fine to me"})])
+
+    # Build and gate
+    job(9, "search-filters", "Filter search results", "gate", age=70, risk="medium", surfaces=["frontend", "backend"],
+        reviewers=[*web, "backend"], cost=3.91,
+        rounds=[(P, {**passed(*web, "backend"), "bugs": C}), (None, {})])
+    job(10, "tag-notes", "Tag notes", "build", age=40, risk="medium", surfaces=["frontend", "backend", "database"],
+        reviewers=[*web, "backend", "dba"], cost=1.76, unpriced=["example-model"], rounds=[(None, {})],
+        packages=[("Schema", "db", "done"), ("API", "api", "building"), ("Tag picker", "ui", "building"),
+                  ("Tag search", "search", "pending")])
+    job(11, "paste-images", "Paste images into a note", "build", age=400, risk="medium", surfaces=["frontend"],
+        reviewers=web, cost=5.20, rounds=[("FAIL", {}), (P, passed(*web)), (None, {})],
+        files={"feedback-1.md": "# Feedback 1\n\nResize large images before saving.\n",
+               "decision-1.md": doc("APPROVE", "Round 2 was approved, then feedback reopened the job.")})
+
+    # Spec and spec review, before and after the operator's approval
+    job(12, "keyboard-shortcuts", "Add keyboard shortcuts", "spec", age=12, risk="low", surfaces=["frontend"],
+        reviewers=web, cost=0.42)
+    job(13, "note-history", "Keep a history of each note", "spec-review", age=60, waited=35, risk="medium",
+        surfaces=["backend", "database"], reviewers=[*core, "backend", "dba", "appsec"], cost=0.97,
+        files={"spec.md": doc("# Keep a history of each note", "Sample spec with an open decision.",
+                              "## Decisions for the operator\n1. Keep 30 days (recommended) or forever?")})
+    job(14, "import-markdown", "Import a folder of Markdown", "spec-review", age=55, waited=25, risk="low",
+        surfaces=["backend"], reviewers=[*core, "backend", "appsec"], pending="build", cost=0.71,
+        files={"spec-approval.md": f"APPROVED\nSPEC-SHA256: {'0' * 64}\n\n## Operator notes\nNone.\n"})
+
+    # Intake and the queue
+    job(15, "make-it-faster", "Make it faster", "needs-info", age=20, waited=15, risk="low", surfaces=["none"],
+        cost=0.09, intake_says="NEEDS-INFO",
+        files={"intake.md": intake("NEEDS-INFO", "low", ["none"], "The request does not say what is slow.",
+                                   "## Questions\n1. Which page is slow?")})
+    job(16, "print-view", "Add a print view", "intake", age=2)
+    job(17, "spell-check", "Check spelling", "queued", age=1)
+
+
+if __name__ == "__main__":
+    main()

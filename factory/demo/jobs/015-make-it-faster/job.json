@@ -1,0 +1,35 @@
+{
+  "id": "015-make-it-faster",
+  "number": 15,
+  "title": "Make it faster",
+  "branch": "factory/015-make-it-faster",
+  "worktree": "/demo/.worktrees/015-make-it-faster",
+  "stage": "needs-info",
+  "round": 0,
+  "round_limit": 3,
+  "intake": {
+    "decision": "NEEDS-INFO",
+    "rescoped": false,
+    "split": false,
+    "risk": "low",
+    "surfaces": [
+      "none"
+    ]
+  },
+  "agents": null,
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 0.09,
+  "unpriced_models": [],
+  "started": "2026-01-15T11:40:00Z",
+  "ended": "2026-01-15T11:45:00Z",
+  "round_reviewers": {},
+  "stage_since": "2026-01-15T11:45:00Z",
+  "active_seconds": 180
+}

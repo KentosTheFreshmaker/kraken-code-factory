@@ -1,0 +1,44 @@
+{
+  "id": "013-note-history",
+  "number": 13,
+  "title": "Keep a history of each note",
+  "branch": "factory/013-note-history",
+  "worktree": "/demo/.worktrees/013-note-history",
+  "stage": "spec-review",
+  "round": 0,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "medium",
+    "surfaces": [
+      "backend",
+      "database"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "backend": "sonnet",
+      "dba": "sonnet",
+      "appsec": "opus"
+    }
+  },
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 0.97,
+  "unpriced_models": [],
+  "started": "2026-01-15T11:00:00Z",
+  "ended": "2026-01-15T11:25:00Z",
+  "round_reviewers": {},
+  "stage_since": "2026-01-15T11:25:00Z",
+  "active_seconds": 900
+}

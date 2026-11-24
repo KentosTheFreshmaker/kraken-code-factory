@@ -6,6 +6,7 @@
 <title>Software Factory</title>
 <style>
   :root {
+    color-scheme: dark;
     --bg: #14151b;
     --panel: #1a1c24;
     --card: #20222c;
@@ -82,45 +83,44 @@
   .card:hover { background: var(--card-hover); transform: translateY(-1px); }
   .card:focus-visible { outline: 2px solid var(--active); outline-offset: 2px; }
   .card.live { border-color: color-mix(in srgb, var(--active) 35%, var(--line)); }
-  .card.human {
+  .card.attn {
     border-color: var(--human);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--human) 40%, transparent),
                 0 8px 24px -12px color-mix(in srgb, var(--human) 60%, transparent);
   }
   .card.done { opacity: .72; }
   .card.rejected .feature { text-decoration: line-through; text-decoration-color: var(--faint); }
-  .flag.wait { color: var(--changes); }
   .card-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
   .card-top .num { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pulse {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--active);
+    flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--active);
     animation: pulse 1.6s ease-in-out infinite;
   }
   .flag {
-    margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: .06em;
-    text-transform: uppercase; color: var(--human); white-space: nowrap;
+    font-size: 10px; font-weight: 600; letter-spacing: .06em; line-height: 1.5;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 4px;
   }
+  .flag.you { color: var(--human); } .flag.todo { color: var(--changes); } .flag.live { color: var(--active); }
   .feature { font-size: 13px; line-height: 1.4; margin: 0 0 6px; }
-  .links { display: flex; gap: 10px; font-family: var(--mono); font-size: 11px; }
+  .links { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--mono); font-size: 11px; min-width: 0; }
   .links a { color: var(--active); text-decoration: none; }
   .links a:hover { text-decoration: underline; }
-  .meta { display: flex; gap: 10px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .meta .risk-high { color: var(--human); } .meta .risk-medium { color: var(--changes); }
-  .chip.gate { flex: 0 0 38px; }
-  .chip.FAIL { border: 1px solid transparent; color: var(--human); background: color-mix(in srgb, var(--human) 16%, transparent); }
   .branch {
-    font-family: var(--mono); font-size: 11px; color: var(--faint);
+    font-family: var(--mono); font-size: 11px; color: var(--faint); max-width: 100%;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .rounds { margin-top: 10px; display: grid; gap: 5px; }
-  .round { display: flex; align-items: center; gap: 4px; }
-  .round .r { font-family: var(--mono); font-size: 10px; color: var(--faint); width: 20px; }
+  .round { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 4px; }
+  .round .r { font-family: var(--mono); font-size: 10px; color: var(--faint); line-height: 19px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
   .chip {
-    flex: 1; text-align: center; font-family: var(--mono); font-size: 10px;
-    padding: 2px 0; border-radius: 4px; border: 1px dashed var(--faint); color: var(--faint);
+    flex: none; max-width: 100%; white-space: nowrap; font-family: var(--mono); font-size: 10px;
+    padding: 1px 5px; border-radius: 4px; border: 1px dashed var(--faint); color: var(--faint);
   }
-  .chip.wait { animation: breathe 1.6s ease-in-out infinite; }
+  .chip.wait { border-color: var(--active); color: var(--active); animation: breathe 1.6s ease-in-out infinite; }
   .chip.PASS {
     border: 1px solid transparent; color: var(--pass);
     background: color-mix(in srgb, var(--pass) 14%, transparent);
@@ -128,6 +128,10 @@
   .chip.CHANGES {
     border: 1px solid transparent; color: var(--changes);
     background: color-mix(in srgb, var(--changes) 16%, transparent);
+  }
+  .chip.FAIL {
+    border: 1px solid transparent; color: var(--human);
+    background: color-mix(in srgb, var(--human) 16%, transparent);
   }
   .chip.bad { border: 1px solid var(--human); color: var(--human); }
   .hint {
@@ -230,6 +234,9 @@
     display: flex; gap: 20px; flex-wrap: wrap;
   }
 
+  @media (max-width: 1680px) {
+    .board { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 28px; }
+  }
   @media (max-width: 1100px) {
     .board { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 28px; }
     .col-head::after { display: none; }
@@ -297,196 +304,326 @@ const COLUMNS = [
 ]
 const STAGES = new Set(COLUMNS.flatMap((c) => c.stages))
 const LIVE = new Set(['intake', 'spec', 'build', 'gate', 'review', 'approve'])
-const SHORT = { quality: 'qual', bugs: 'bugs', appsec: 'appsec', opsec: 'opsec', ops: 'ops', backend: 'back', dba: 'dba', ux: 'ux', ui: 'ui' }
+const TERMINAL = new Set(['closed', 'rejected'])
+const WAITS_ON_YOU = new Set(['needs-info', 'spec-review', 'needs-human'])
+const SHORT = { quality: 'qual', backend: 'back' }
+// dashboard.html?demo shows the sample jobs in demo/jobs/, at a fixed time.
+const DEMO = new URLSearchParams(location.search).has('demo')
+const ROOT = DEMO ? 'demo/jobs/' : 'jobs/'
+const now = () => (DEMO ? new Date('2026-01-15T12:00:00Z') : new Date())
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 
 let jobs = []
-let lastRender = ''
-const roundCache = new Map() // "<job>/<n>" -> verdicts of a finished round
+const lastGood = new Map() // job id -> last job.json that loaded
+const failing = new Map() // job id -> polls in a row that failed to load it
+const roundCache = new Map() // "<job>/<n>" -> verdicts of a round that can't change any more
 let openJobId = null
 let openPath = null
 let openText = null
 
 async function fetchText(url) {
   const res = await fetch(url, { cache: 'no-store' })
-  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
+  if (!res.ok) throw Object.assign(new Error(`${url}: HTTP ${res.status}`), { status: res.status })
   return res.text()
 }
 
-async function fetchFirst(url) {
-  try { return (await fetchText(url)).split('\n')[0].trim() } catch { return null }
+// Only a 404 means "not there"; any other failure is an error the poll reports.
+async function orMissing(promise, missing) {
+  try { return await promise } catch (err) { if (err.status === 404) return missing; throw err }
 }
+
+// python -m http.server serves an HTML index for directories; read its links.
+async function listDir(url) {
+  const doc = new DOMParser().parseFromString(await fetchText(url), 'text/html')
+  return [...doc.querySelectorAll('a')].map((a) => decodeURIComponent(a.getAttribute('href')))
+}
+
+const firstLine = (text) => text.split('\n')[0].trim()
 
 // ---- Board ---------------------------------------------------------------
 
-function verdictOf(line) {
-  if (line === null) return 'pending'
-  const m = line.match(/^(?:VERDICT|GATE):\s*(PASS|CHANGES|FAIL)$/)
-  return m ? m[1] : 'invalid'
+// The same lines bin/job accepts. A missing or still empty file is pending.
+const GATE = /^GATE:\s*(PASS|FAIL)$/
+const VERDICT = /^VERDICT:\s*(PASS|CHANGES)$/
+
+function verdictOf(text, pattern) {
+  const line = firstLine(text || '')
+  if (!line) return 'pending'
+  return line.match(pattern)?.[1] || 'invalid'
 }
 
-// A round's verdicts come from its files: the gate first, then each routed reviewer.
+// A round's verdicts come from its files: the gate first, then each reviewer.
 async function roundVerdicts(job, n) {
   const key = `${job.id}/${n}`
   if (roundCache.has(key)) return roundCache.get(key)
-  const dir = `jobs/${job.id}/round-${n}/`
-  const v = { gate: verdictOf(await fetchFirst(dir + 'checks.md')), reviews: {} }
+  const dir = `${ROOT}${job.id}/round-${n}/`
+  const current = n === job.round
+  const files = new Set(await orMissing(listDir(dir), []))
+  const read = async (name, pattern) =>
+    verdictOf(files.has(name) ? await orMissing(fetchText(dir + name), '') : '', pattern)
+  const v = { gate: await read('checks.md', GATE), reviews: {} }
   if (v.gate === 'PASS') {
-    await Promise.all(Object.keys(job.agents?.reviewers || {}).map(async (r) => {
-      v.reviews[r] = verdictOf(await fetchFirst(`${dir}review-${r}.md`))
-    }))
+    // The routed set can grow between rounds: a past round shows who reviewed it.
+    const names = Object.keys(job.agents?.reviewers || {})
+      .filter((r) => job.round_reviewers?.[n]?.includes(r) ?? (current || files.has(`review-${r}.md`)))
+    const verdicts = await Promise.all(names.map((r) => read(`review-${r}.md`, VERDICT)))
+    names.forEach((r, i) => { v.reviews[r] = verdicts[i] })
   }
-  const settled = v.gate === 'FAIL' || (v.gate === 'PASS' && Object.values(v.reviews).every((x) => x === 'PASS' || x === 'CHANGES'))
-  if (settled && n < job.round) roundCache.set(key, v)
+  if (!current || !LIVE.has(job.stage)) roundCache.set(key, v)
   return v
 }
 
-function chip(label, v, waiting, title, extra = '') {
+const MARK = { PASS: '✓', CHANGES: '!', FAIL: '✕', pending: '·', invalid: '?' }
+const CHIP_TITLE = { invalid: 'first line is not a verdict' }
+
+function chip(label, v, waiting = false, title = label) {
   const cls = ['PASS', 'CHANGES', 'FAIL'].includes(v) ? v : v === 'pending' ? (waiting ? 'wait' : '') : 'bad'
-  return `<span class="chip ${extra} ${cls}" title="${esc(title)}: ${esc(v)}">${esc(label)}</span>`
+  const said = CHIP_TITLE[v] || (v === 'pending' && waiting ? 'running' : v)
+  return `<span class="chip ${cls}" title="${esc(title)}: ${esc(said)}">${v === 'pending' && waiting ? '…' : MARK[v]} ${esc(label)}</span>`
 }
 
 function roundRow(job, n, v) {
-  const current = n === job.round
-  const cells = [chip('gate', v.gate, current && job.stage === 'gate', 'gate', 'gate')]
-  if (v.gate === 'PASS') {
-    for (const r of Object.keys(job.agents.reviewers)) {
-      cells.push(chip(SHORT[r] || r, v.reviews[r], current && job.stage === 'review', r))
-    }
+  const current = n === job.round && !TERMINAL.has(job.stage)
+  const cells = [chip('gate', v.gate, current && job.stage === 'gate')]
+  const reviews = Object.entries(v.reviews)
+  const passed = reviews.filter(([, x]) => x === 'PASS').map(([r]) => r)
+  // Finished rounds collapse their passes; the rest stay named.
+  if (!current && passed.length) {
+    cells.push(`<span class="chip PASS" title="PASS: ${esc(passed.join(', '))}">✓ ${passed.length} pass</span>`)
   }
-  return `<div class="round"><span class="r">R${n}</span>${cells.join('')}</div>`
+  for (const [r, x] of reviews) {
+    if (current || x !== 'PASS') cells.push(chip(SHORT[r] || r, x, current && job.stage === 'review', r))
+  }
+  return `<div class="round"><span class="r">R${n}</span><div class="chips">${cells.join('')}</div></div>`
 }
 
+const PACKAGE = {
+  pending: { cls: '', mark: '·' }, building: { cls: 'wait', mark: '…' },
+  done: { cls: 'PASS', mark: '✓' }, blocked: { cls: 'FAIL', mark: '✕' },
+}
+
+// Work packages build in round 1; once they are all merged one chip says so.
+function packageRow(job) {
+  const wps = job.packages || []
+  if (!wps.length) return ''
+  const done = wps.filter((p) => p.status === 'done').length
+  const cells = done === wps.length
+    ? [`<span class="chip PASS">✓ ${done}/${wps.length} packages</span>`]
+    : wps.map((p) => {
+        const s = PACKAGE[p.status] || { cls: 'bad', mark: '?' }
+        return `<span class="chip ${s.cls}" title="${esc(`${p.id} ${p.title}: ${p.status}`)}">${s.mark} ${esc(p.id)}</span>`
+      })
+  return `<div class="round"><span class="r">WP</span><div class="chips">${cells.join('')}</div></div>`
+}
+
+const minutes = (min) => (min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}m` : `${min}m`)
+
+const since = (stamp, end = now()) => Math.max(0, (end - new Date(stamp)) / 1000)
+const duration = (seconds) => minutes(Math.floor(seconds / 60))
+
+// Time in running stages: not queued, and not waiting on you. Same as bin/job.
 function elapsed(job) {
-  const end = job.ended ? new Date(job.ended) : new Date()
-  const min = Math.max(0, Math.floor((end - new Date(job.started)) / 60000))
-  return min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}m` : `${min}m`
+  if (!job.stage_since) return duration(since(job.started, job.ended ? new Date(job.ended) : now()))
+  return duration((job.active_seconds || 0) + (LIVE.has(job.stage) ? since(job.stage_since) : 0))
 }
 
-const link = (url, text) =>
-  url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${text}</a>` : `<span>${text}</span>`
+function times(job) {
+  if (!job.stage_since || TERMINAL.has(job.stage)) return elapsed(job)
+  return `${elapsed(job)} · ${duration(since(job.stage_since))} here`
+}
+
+// An approved job that has no slot yet waits on the factory, not on you.
+const needsYou = (job) => !job.pending && (WAITS_ON_YOU.has(job.stage) || job.stage === 'ready')
+
+function statusOf(job, v) {
+  if (job.pending) return ['todo', `waiting for a slot → ${job.pending}`]
+  const reviews = Object.values(v?.reviews || {})
+  switch (job.stage) {
+    case 'queued': return ['', 'queued']
+    case 'intake': return ['live', 'reading the request']
+    case 'needs-info': return ['you', 'answer intake']
+    case 'spec': return ['live', 'writing the spec']
+    case 'spec-review': return ['you', 'review spec']
+    case 'build': return ['live', job.round > 1 ? `building round ${job.round}` : 'building']
+    case 'gate': return ['live', 'running checks']
+    case 'review': return ['live', `${reviews.filter((x) => x !== 'pending').length}/${reviews.length} reviews in`]
+    case 'approve': return ['live', 'approver deciding']
+    case 'needs-human': return ['you', 'your call']
+    case 'ready': return ['todo', 'open PR']
+    default: return ['', job.stage]
+  }
+}
+
+const DECISION = { APPROVE: ['PASS', '✓'], DENY: ['FAIL', '✕'], ESCALATE: ['FAIL', '!'] }
+
+function cost(job) {
+  const unpriced = job.unpriced_models || []
+  return `<span${unpriced.length ? ` title="not priced: ${esc(unpriced.join(', '))}"` : ''}>$${Number(job.cost_usd || 0).toFixed(2)}${unpriced.length ? '+' : ''}</span>`
+}
 
 function links(job) {
-  const out = [`<span>${esc(job.branch || '')}</span>`]
-  if (job.decision) out.push(`<span>${esc(job.decision)}</span>`)
-  const wps = job.packages || []
-  if (wps.length) out.push(`<span>${wps.filter((p) => p.status === 'done').length}/${wps.length} packages</span>`)
+  const out = []
+  if (job.agents && job.branch) { // routed: the branch exists from spec on
+    out.push(`<span class="branch" title="${esc(job.branch)}">${esc(job.branch)}</span>`)
+  }
+  // Before the approver decides, a decision can only be an older round's.
+  const decided = !['build', 'gate', 'review'].includes(job.stage)
+  const [cls, mark] = (decided && DECISION[job.decision]) || []
+  if (cls) out.push(`<span class="chip ${cls}" title="decision.md">${mark} ${esc(job.decision)}</span>`)
   return out.join('')
 }
 
-function card(job, rounds) {
+function hint(job) {
+  if (job.pending) return ''
+  if (job.stage === 'needs-human') return 'read decision.md, then give feedback or reject: /factory &lt;anything&gt;'
+  if (job.stage === 'ready') return 'open the PR with PR.md; see REVIEW.md'
+  return ''
+}
+
+// Times go in separately (data-time), so a passing minute doesn't rebuild the card.
+function card(job, verdicts) {
   const live = LIVE.has(job.stage)
-  const human = job.stage === 'needs-human'
-  const done = job.stage === 'closed' || job.stage === 'rejected'
   const [num, ...slug] = job.id.split('-')
-  const flag = human ? '<span class="flag">your call</span>'
-    : job.stage === 'needs-info' ? '<span class="flag">answer intake</span>'
-    : job.stage === 'spec-review' ? '<span class="flag">review spec</span>'
-    : job.stage === 'ready' ? '<span class="flag wait">open PR</span>'
-    : job.stage === 'rejected' ? '<span class="flag wait">rejected</span>' : ''
+  const [flagCls, flag] = statusOf(job, verdicts[verdicts.length - 1])
   const risk = job.intake?.risk
-  const meta = [
-    risk ? `<span class="risk-${esc(risk)}">${esc(risk)}</span>` : '',
-    `<span>$${Number(job.cost_usd).toFixed(2)}</span>`,
-    `<span>${elapsed(job)}</span>`,
-  ].join('')
+  const rows = packageRow(job) + verdicts.map((v, i) => roundRow(job, i + 1, v)).join('')
   return `
-    <article class="card ${live ? 'live' : ''} ${human ? 'human' : ''} ${done ? 'done' : ''} ${job.stage}"
-             data-job="${esc(job.id)}" tabindex="0">
+    <article class="card ${live ? 'live' : ''} ${needsYou(job) && job.stage !== 'ready' ? 'attn' : ''} ${TERMINAL.has(job.stage) ? 'done' : ''} ${job.stage === 'rejected' ? 'rejected' : ''}"
+             data-job="${esc(job.id)}" tabindex="0" role="button">
       <div class="card-top">
-        ${live ? '<span class="pulse" aria-label="running"></span>' : ''}
-        <span class="num">${esc(num)} · ${esc(slug.join('-'))}</span>
-        ${flag}
+        ${live ? '<span class="pulse"></span>' : ''}
+        <span class="num" title="${esc(job.id)}">${esc(num)} · ${esc(slug.join('-'))}</span>
       </div>
+      <div class="flag ${flagCls}">${esc(flag)}</div>
       <p class="feature">${esc(job.title)}</p>
       <div class="links">${links(job)}</div>
-      ${rounds.length ? `<div class="rounds">${rounds.join('')}</div>` : ''}
-      <div class="meta">${meta}</div>
-      ${human ? '<div class="hint">read decision.md, then give feedback or reject: /factory &lt;anything&gt;</div>' : ''}
-      ${job.stage === 'ready' ? '<div class="hint">open the PR with PR.md; see REVIEW.md</div>' : ''}
+      ${rows ? `<div class="rounds">${rows}</div>` : ''}
+      <div class="meta">${risk ? `<span class="risk-${esc(risk)}">${esc(risk)}</span>` : ''}${cost(job)}<span data-time title="running time · time in this stage"></span></div>
+      ${hint(job) ? `<div class="hint">${hint(job)}</div>` : ''}
     </article>`
 }
 
-async function render() {
-  const problems = []
-  const cards = new Map(COLUMNS.map((c) => [c, []]))
-  for (const job of jobs) {
-    if (!STAGES.has(job.stage)) { problems.push(`Job ${job.id} has unknown stage "${job.stage}"`); continue }
-    const rounds = []
-    for (let n = 1; n <= job.round; n++) rounds.push(roundRow(job, n, await roundVerdicts(job, n)))
-    cards.get(COLUMNS.find((c) => c.stages.includes(job.stage))).push(card(job, rounds))
+$('board').innerHTML = COLUMNS.map((c) => `
+  <section class="col ${c.cls || ''}">
+    <div class="col-head">
+      <h2>${c.label}</h2><span class="who" title="${c.who}">${c.who}</span><span class="count"></span>
+    </div>
+    <div class="cards"></div><div class="empty">—</div>
+  </section>`).join('')
+
+const drawn = new Map() // job id -> { html, el }
+
+// Redraw only the cards that changed, so pulses keep their beat and focus stays put.
+function drawCard(job, verdicts) {
+  const html = card(job, verdicts)
+  let d = drawn.get(job.id)
+  if (!d || d.html !== html) {
+    const t = document.createElement('template')
+    t.innerHTML = html.trim()
+    const el = t.content.firstElementChild
+    const focused = d && document.activeElement === d.el
+    if (d) d.el.replaceWith(el)
+    d = { html, el }
+    drawn.set(job.id, d)
+    if (focused) el.focus()
   }
-  // Newest first within a column.
-  const html = COLUMNS.map((c) => `
-    <section class="col ${c.cls || ''}">
-      <div class="col-head">
-        <h2>${c.label}</h2><span class="who">${c.who}</span>
-        <span class="count">${cards.get(c).length || ''}</span>
-      </div>
-      ${cards.get(c).reverse().join('') || '<div class="empty">—</div>'}
-    </section>`).join('')
-  const banner = problems.map((p) => `<div class="banner">${esc(p)}</div>`).join('')
-  if (html + banner !== lastRender) {
-    lastRender = html + banner
-    $('board').innerHTML = html
-    $('banner').innerHTML = banner
-  }
-  const running = jobs.filter((j) => LIVE.has(j.stage)).length
-  const cost = jobs.reduce((sum, j) => sum + Number(j.cost_usd), 0)
-  $('totals').textContent = `${running} running · $${cost.toFixed(2)} API-equivalent`
+  const time = d.el.querySelector('[data-time]')
+  if (time.textContent !== times(job)) time.textContent = times(job)
+  return d.el
 }
+
+async function render(problems) {
+  const columns = new Map(COLUMNS.map((c) => [c, []]))
+  const verdicts = await Promise.all(jobs.map((job) =>
+    Promise.all(Array.from({ length: job.round }, (_, i) => roundVerdicts(job, i + 1)))))
+  jobs.forEach((job, i) => {
+    if (!STAGES.has(job.stage)) { problems.push(`Job ${job.id} has unknown stage "${job.stage}"`); return }
+    // Newest first within a column.
+    columns.get(COLUMNS.find((c) => c.stages.includes(job.stage))).unshift([job, verdicts[i]])
+  })
+  const shown = new Set([...columns.values()].flat().map(([job]) => job.id))
+  for (const [id, d] of drawn) if (!shown.has(id)) { d.el.remove(); drawn.delete(id) }
+  COLUMNS.forEach((c, i) => {
+    const col = $('board').children[i]
+    const list = col.querySelector('.cards')
+    const cards = columns.get(c)
+    cards.forEach(([job, v], k) => {
+      const el = drawCard(job, v)
+      if (list.children[k] === el) return
+      const focused = document.activeElement === el
+      list.insertBefore(el, list.children[k] || null)
+      if (focused) el.focus()
+    })
+    col.querySelector('.count').textContent = cards.length || ''
+    col.querySelector('.empty').hidden = cards.length > 0
+  })
+  const banner = problems.map((p) => `<div class="banner">${esc(p)}</div>`).join('')
+  if ($('banner').innerHTML !== banner) $('banner').innerHTML = banner
+  const running = jobs.filter((j) => LIVE.has(j.stage)).length
+  const total = jobs.reduce((sum, j) => sum + Number(j.cost_usd || 0), 0)
+  $('totals').textContent = `${running} running · ${jobs.filter(needsYou).length} need you · $${total.toFixed(2)} API-equivalent`
+}
+
+let lastUpdate = null
 
 async function poll() {
   const status = $('status')
   try {
-    jobs = await loadJobs()
-    await render()
+    const problems = []
+    jobs = await loadJobs(problems)
+    await render(problems)
     if (openJobId) await refreshDrawer()
+    lastUpdate = new Date().toLocaleTimeString()
     status.className = 'status'
-    status.innerHTML = `<span class="dot"></span>jobs/ · ${new Date().toLocaleTimeString()}`
+    status.innerHTML = `<span class="dot"></span>${DEMO ? 'demo · ' : ''}${ROOT} · ${lastUpdate}`
   } catch (err) {
+    // The board keeps what it last showed; say that it is old.
     status.className = 'status error'
-    status.innerHTML = `<span class="dot"></span>${esc(err.message)}`
+    status.innerHTML = `<span class="dot"></span>${esc(err.message)}${lastUpdate ? ` · last update ${lastUpdate}` : ''}`
   }
 }
 
-// factory/bin/job writes each jobs/<id>/job.json.
-async function loadJobs() {
-  let listing
-  try { listing = await fetchText('jobs/') } catch { return [] }
-  const doc = new DOMParser().parseFromString(listing, 'text/html')
-  const ids = [...doc.querySelectorAll('a')]
-    .map((a) => decodeURIComponent(a.getAttribute('href')))
-    .filter((h) => h.endsWith('/'))
-    .map((h) => h.slice(0, -1))
-    .sort()
-  return Promise.all(ids.map(async (id) => JSON.parse(await fetchText(`jobs/${id}/job.json`))))
+// factory/bin/job writes each jobs/<id>/job.json. One that fails to load keeps
+// its last state for a poll (it may be half created), then is reported.
+async function loadJobs(problems) {
+  const ids = (await orMissing(listDir(ROOT), []))
+    .filter((h) => h.endsWith('/')).map((h) => h.slice(0, -1)).sort()
+  const loaded = await Promise.all(ids.map(async (id) => {
+    try {
+      const job = JSON.parse(await fetchText(`${ROOT}${id}/job.json`))
+      if (job.id !== id || !job.stage || !Number.isInteger(job.round)) throw new Error('not a job: needs id, stage and round')
+      lastGood.set(id, job)
+      failing.delete(id)
+    } catch (err) {
+      failing.set(id, (failing.get(id) || 0) + 1)
+      if (failing.get(id) > 1) problems.push(`Job ${id}: job.json doesn't load (${err.message})`)
+    }
+    return lastGood.get(id)
+  }))
+  return loaded.filter(Boolean)
 }
 
 // ---- Drawer --------------------------------------------------------------
 
-// python -m http.server serves an HTML index for directories; read its links.
 async function listFiles(dir) {
-  const doc = new DOMParser().parseFromString(await fetchText(dir), 'text/html')
-  const hrefs = [...doc.querySelectorAll('a')].map((a) => decodeURIComponent(a.getAttribute('href')))
   const out = []
-  for (const h of hrefs) {
+  for (const h of await listDir(dir)) {
     if (h.endsWith('/')) out.push(...(await listFiles(dir + h)).map((f) => h + f))
     else if (h.endsWith('.md')) out.push(h)
   }
   return out
 }
 
-const ORDER = ['request.md', 'issue.md', 'intake.md', 'spec.md', 'spec-approval.md', 'build.md', 'decision.md', 'PR.md', 'REVIEW.md', 'rejection.md']
+const ORDER = ['request.md', 'issue.md', 'intake.md', 'spec.md', 'spec-approval.md', 'build.md', 'decision.md', 'PR.md', 'PR-qa.md', 'REVIEW.md', 'rejection.md']
 const ROUND_ORDER = ['checks', 'review-quality', 'review-bugs', 'review-backend', 'review-dba', 'review-ops', 'review-appsec', 'review-opsec', 'review-ux', 'review-ui']
 
 function fileRank(path) {
   if (ORDER.includes(path)) return [0, ORDER.indexOf(path), path]
   const round = path.match(/^round-(\d+)\/(.+)\.md$/)
-  if (round) return [2, Number(round[1]) * 10 + ROUND_ORDER.indexOf(round[2]), path]
+  if (round) return [2, Number(round[1]) * 100 + ROUND_ORDER.indexOf(round[2]), path]
   return [1, 0, path] // build-wp<k>.md, intake-<k>.md, feedback-<k>.md
 }
 
@@ -505,29 +642,32 @@ function tone(first) {
 }
 
 const firstLines = new Map()
+let drawnFiles = null
 
 async function refreshDrawer() {
   const job = jobs.find((j) => j.id === openJobId)
   if (!job) return
-  $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''} · $${Number(job.cost_usd).toFixed(2)} · ${elapsed(job)}`
+  const wanted = openPath
+  const stale = () => openJobId !== job.id || openPath !== wanted // the user moved on meanwhile
+  $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''} · $${Number(job.cost_usd || 0).toFixed(2)} · ${times(job)}`
   $('d-title').textContent = job.title
   $('d-links').innerHTML = links(job)
 
-  const base = `jobs/${job.id}/`
+  const base = `${ROOT}${job.id}/`
   const files = sortFiles(await listFiles(base))
-  if (!openPath || !files.includes(openPath)) openPath = files[0] || null
-
-  let text = null
-  if (openPath) {
-    text = await fetchText(base + openPath)
-    firstLines.set(base + openPath, text.split('\n')[0].trim())
-  }
-  await Promise.all(files.filter((f) => !firstLines.has(base + f)).map(async (f) => {
-    firstLines.set(base + f, (await fetchText(base + f)).split('\n')[0].trim())
+  const path = wanted && files.includes(wanted) ? wanted : files[0] || null
+  // Past rounds don't change; every other file's dot follows its current first line.
+  const past = (f) => { const m = f.match(/^round-(\d+)\//); return m && Number(m[1]) < job.round }
+  await Promise.all(files.filter((f) => f !== path && !(past(f) && firstLines.has(base + f))).map(async (f) => {
+    firstLines.set(base + f, firstLine(await orMissing(fetchText(base + f), '')))
   }))
+  const text = path ? await orMissing(fetchText(base + path), '') : null
+  if (stale()) return
+  openPath = path
+  if (path) firstLines.set(base + path, firstLine(text))
 
   let group = null
-  $('d-files').innerHTML = files.map((f) => {
+  const list = files.map((f) => {
     const g = f.includes('/') ? f.split('/')[0].replace('round-', 'Round ') : 'Job'
     const head = g !== group ? `<div class="group">${esc(g)}</div>` : ''
     group = g
@@ -539,10 +679,16 @@ async function refreshDrawer() {
     return `${head}<button class="file ${f === openPath ? 'on' : ''}" data-file="${esc(f)}">
       <span class="v ${t || ''}"></span>${name}</button>`
   }).join('') || '<div class="empty">No files yet.</div>'
+  if (list !== drawnFiles) {
+    const focused = document.activeElement?.dataset?.file
+    drawnFiles = list
+    $('d-files').innerHTML = list
+    if (focused) $('d-files').querySelector(`[data-file="${CSS.escape(focused)}"]`)?.focus()
+  }
 
   if (text !== openText) {
     openText = text
-    $('d-doc').innerHTML = text === null ? '<p class="note">Intake hasn’t written anything yet.</p>' : markdown(text)
+    $('d-doc').innerHTML = text === null ? '<p class="note">Nothing written yet.</p>' : markdown(text)
   }
 }
 
@@ -572,7 +718,7 @@ document.addEventListener('click', (e) => {
     openPath = fileEl.dataset.file
     openText = undefined
     $('d-doc').parentElement.scrollTop = 0
-    return refreshDrawer()
+    return refreshDrawer().catch((err) => { $('d-doc').innerHTML = `<p class="note">${esc(err.message)}</p>` })
   }
   if (e.target.closest('[data-close]')) closeDrawer()
 })
@@ -618,7 +764,7 @@ function markdown(src) {
     i = 1
     // The rest of a KEY: value header block (intake.md, checks.md).
     const extra = []
-    while (i < lines.length && /^[A-Z-]+:\s/.test(lines[i])) extra.push(lines[i++])
+    while (i < lines.length && /^[A-Z0-9-]+:\s/.test(lines[i])) extra.push(lines[i++])
     if (extra.length) html += `<div class="head">${esc(extra.join('\n'))}</div>`
   }
   if (split.summary !== null) html += `<section class="summary"><h2>Summary</h2>${markdown(split.summary)}</section>`
@@ -680,8 +826,11 @@ function markdown(src) {
   return html
 }
 
-poll()
-setInterval(poll, POLL_MS)
+async function loop() {
+  await poll()
+  setTimeout(loop, POLL_MS) // after the poll, so polls never overlap
+}
+loop()
 </script>
 </body>
 </html>

@@ -187,6 +187,7 @@ factory/
   bin/gate                    runs checks.sh in a job's worktree → round-N/checks.md; --check runs it without writing
   bin/route                   risk + surfaces → the job's reviewers and models
   dashboard.html              the board
+  demo/                       sample jobs for dashboard.html?demo
 INSTALL.md                    instructions for the installing agent
 DESIGN.md                     how it works and why
 ```
@@ -198,6 +199,14 @@ cd factory && python3 -m http.server
 ```
 
 Open <http://localhost:8000/dashboard.html>.
+
+<http://localhost:8000/dashboard.html?demo> shows invented sample jobs instead
+of yours, covering every stage and indicator. They live in `factory/demo/jobs/`;
+`factory/demo/make` regenerates them.
+
+Chips read `✓` pass, `!` changes wanted, `✕` failed or blocked, `…` running,
+`·` not started, `?` a file whose first line isn't a verdict. Finished rounds
+collapse their passes into one chip. Red borders are jobs waiting on you.
 
 ## Safety
 

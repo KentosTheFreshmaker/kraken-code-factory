@@ -1,0 +1,51 @@
+{
+  "id": "011-paste-images",
+  "number": 11,
+  "title": "Paste images into a note",
+  "branch": "factory/011-paste-images",
+  "worktree": "/demo/.worktrees/011-paste-images",
+  "stage": "build",
+  "round": 3,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "medium",
+    "surfaces": [
+      "frontend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "ux": "sonnet",
+      "ui": "haiku",
+      "appsec": "opus"
+    }
+  },
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 5.2,
+  "unpriced_models": [],
+  "started": "2026-01-15T05:20:00Z",
+  "ended": null,
+  "round_reviewers": {
+    "2": [
+      "quality",
+      "bugs",
+      "ux",
+      "ui",
+      "appsec"
+    ]
+  },
+  "stage_since": "2026-01-15T11:52:00Z",
+  "active_seconds": 14100
+}

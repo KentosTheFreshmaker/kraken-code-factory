@@ -1,0 +1,78 @@
+{
+  "id": "003-shared-notebooks-with-permissions",
+  "number": 3,
+  "title": "Share notebooks with per-user permissions",
+  "branch": "factory/003-shared-notebooks-with-permissions",
+  "worktree": "/demo/.worktrees/003-shared-notebooks-with-permissions",
+  "stage": "ready",
+  "round": 3,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "high",
+    "surfaces": [
+      "frontend",
+      "backend",
+      "database"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "backend": "sonnet",
+      "dba": "sonnet",
+      "ops": "sonnet",
+      "appsec": "opus",
+      "opsec": "opus",
+      "ux": "sonnet",
+      "ui": "haiku"
+    }
+  },
+  "packages": [],
+  "gate": "PASS",
+  "reviews": {
+    "quality": "PASS",
+    "bugs": "PASS",
+    "backend": "PASS",
+    "dba": "PASS",
+    "ops": "PASS",
+    "appsec": "PASS",
+    "opsec": "PASS",
+    "ux": "PASS",
+    "ui": "PASS"
+  },
+  "decision": "APPROVE",
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 21.37,
+  "unpriced_models": [],
+  "started": "2026-01-14T21:00:00Z",
+  "ended": "2026-01-15T11:15:00Z",
+  "round_reviewers": {
+    "1": [
+      "quality",
+      "bugs",
+      "ux",
+      "ui",
+      "appsec"
+    ],
+    "3": [
+      "quality",
+      "bugs",
+      "backend",
+      "dba",
+      "ops",
+      "appsec",
+      "opsec",
+      "ux",
+      "ui"
+    ]
+  },
+  "stage_since": "2026-01-15T11:15:00Z",
+  "active_seconds": 30780
+}
