@@ -70,7 +70,8 @@ through the scripts. `factory/jobs/` is gitignored runtime state.
 <repo>/factory/jobs/<job-id>/build.md          the job builder's (or integrator's) build file
 <repo>/factory/jobs/<job-id>/round-<N>/checks.md        the gate's verdict for round N
 <repo>/factory/jobs/<job-id>/round-<N>/review-<r>.md    one per routed reviewer
-<repo>/factory/jobs/<job-id>/decision.md       APPROVE | DENY (approver) or ESCALATE (scripts)
+<repo>/factory/jobs/<job-id>/decision.md       APPROVE | DENY (approver) or ESCALATE (scripts), for the current round only
+<repo>/factory/jobs/<job-id>/decision-<k>.md   earlier rounds' decisions, archived when a new round starts
 <repo>/factory/jobs/<job-id>/PR.md             the drafted PR description (one file per config.json pr.templates entry)
 <repo>/factory/jobs/<job-id>/REVIEW.md         the factory's record for the user: verdict, reviews, criteria, assumptions
 <repo>/factory/jobs/<job-id>/feedback-<k>.md   the user's feedback

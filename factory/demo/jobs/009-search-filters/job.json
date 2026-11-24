@@ -38,5 +38,17 @@
   "cost_usd": 3.91,
   "unpriced_models": [],
   "started": "2026-01-15T10:50:00Z",
-  "ended": null
+  "ended": null,
+  "round_reviewers": {
+    "1": [
+      "quality",
+      "bugs",
+      "ux",
+      "ui",
+      "appsec",
+      "backend"
+    ]
+  },
+  "stage_since": "2026-01-15T11:52:00Z",
+  "active_seconds": 2220
 }

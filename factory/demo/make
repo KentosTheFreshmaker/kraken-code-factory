@@ -62,6 +62,9 @@ def job(number, slug, title, stage, *, age, waited=0, risk=None, surfaces=(), ro
             first = f"VERDICT: {verdict}" if verdict in (P, C) else verdict
             files[f"round-{n}/review-{r}.md"] = doc(first, f"Sample {r} review.")
     gate, reviews = rounds[-1] if rounds else (None, {})
+    # Minutes in this stage, and minutes of running stages before it.
+    since = waited or min(age, 8)
+    active = 0 if stage in {"queued", "intake"} else max(1, int((age - since) * 0.6))
     data = {
         "id": jid, "number": number, "title": title, "branch": f"factory/{jid}",
         "worktree": f"/demo/.worktrees/{jid}", "stage": stage, "round": len(rounds), "round_limit": 3,
@@ -76,6 +79,9 @@ def job(number, slug, title, stage, *, age, waited=0, risk=None, surfaces=(), ro
         "decision": decision, "answered": False, "pending": pending, "spec_sha": None, "qa_worktree": None,
         "cost_usd": cost, "unpriced_models": list(unpriced), "started": ago(age),
         "ended": ago(waited) if stage in WAITING and stage != "queued" else None,
+        "round_reviewers": {str(n): list(r) if n < len(rounds) else list(reviewers)
+                            for n, (g, r) in enumerate(rounds, 1) if g == P},
+        "stage_since": ago(since), "active_seconds": active * 60,
     }
     files["job.json"] = json.dumps(data, indent=2) + "\n"
     for name, text in files.items():
@@ -140,7 +146,8 @@ def main():
                   ("Tag search", "search", "pending")])
     job(11, "paste-images", "Paste images into a note", "build", age=400, risk="medium", surfaces=["frontend"],
         reviewers=web, cost=5.20, rounds=[("FAIL", {}), (P, passed(*web)), (None, {})],
-        files={"feedback-1.md": "# Feedback 1\n\nResize large images before saving.\n"})
+        files={"feedback-1.md": "# Feedback 1\n\nResize large images before saving.\n",
+               "decision-1.md": doc("APPROVE", "Round 2 was approved, then feedback reopened the job.")})
 
     # Spec and spec review, before and after the operator's approval
     job(12, "keyboard-shortcuts", "Add keyboard shortcuts", "spec", age=12, risk="low", surfaces=["frontend"],

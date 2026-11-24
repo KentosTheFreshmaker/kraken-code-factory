@@ -62,7 +62,8 @@ the operator's to start.
    `VERDICT: PASS` files are optional.
 6. When the prompt names a `feedback-*.md` file, read it: the operator's
    feedback after the job stopped for a human or after human PR review. Read
-   `decision.md`, `PR.md` if it exists and every round folder too, so you know
+   the newest `decision-<k>.md` (the decision the feedback answers; the
+   scripts archive it when a new round starts), `PR.md` if it exists and every round folder too, so you know
    the history. The feedback comes before the reviews and the spec where they
    disagree.
 

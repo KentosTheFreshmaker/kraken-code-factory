@@ -133,6 +133,19 @@ def all_jobs():
     return [load(p.name) for p in sorted(JOBS.iterdir()) if (p / "job.json").exists()]
 
 
+def seconds_since(stamp, until=None):
+    parse = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))
+    return max(0, int(((parse(until) if until else datetime.now(timezone.utc)) - parse(stamp)).total_seconds()))
+
+
+def active_seconds(job):
+    """Time spent in running stages: not queued, and not waiting on the operator."""
+    if not job.get("stage_since"):  # a job from before stage_since: started to ended
+        return seconds_since(job["started"], job["ended"])
+    live = job["stage"] not in TERMINAL | WAITING
+    return job.get("active_seconds", 0) + (seconds_since(job["stage_since"]) if live else 0)
+
+
 def running(jobs):
     """Jobs holding a concurrency slot: every job not finished or waiting."""
     return [j for j in jobs if j["stage"] not in TERMINAL | WAITING]
@@ -663,7 +676,16 @@ def check_reviews_done(job):
     require(not bad, f"first line isn't a verdict in review-{bad[0]}.md" if bad else "")
 
 
+def archive_decision(job):
+    """Keep an earlier round's decision.md as decision-<k>.md, so it never stands for a later round."""
+    d = job_dir(job["id"])
+    if (d / "decision.md").exists():
+        k = len(list(d.glob("decision-*.md"))) + 1
+        (d / "decision.md").rename(d / f"decision-{k}.md")
+
+
 def next_round(job):
+    archive_decision(job)
     job["round"] += 1
     round_dir(job).mkdir(exist_ok=True)
     job["gate"] = None
@@ -859,6 +881,8 @@ def advance(job, stage):
             if added:
                 print(f"{job['id']}: the diff adds reviewers: {', '.join(added)}")
             job["reviews"] = {r: "pending" for r in reviewers(job)}
+            # Routing can add reviewers in a later round: record who reviews this one.
+            job.setdefault("round_reviewers", {})[str(job["round"])] = reviewers(job)
         else:
             require(h.get("GATE") == "FAIL", "the gate passed")
             last = job["round"] >= job["round_limit"]
@@ -875,6 +899,7 @@ def advance(job, stage):
         changes = [r for r, v in job["reviews"].items() if v == "CHANGES"]
         if stage == "approve":
             require(not changes, f"reviews want CHANGES: {', '.join(changes)}")
+            archive_decision(job)  # the approver decides this round afresh
         else:
             require(changes, "every review passed")
             last = job["round"] >= job["round_limit"]
@@ -906,6 +931,7 @@ def advance(job, stage):
     if stage in {"ready", "needs-human"} and job["round"] and old in {"approve", "review", "gate"}:
         job["stage"] = stage
         write_pr(sync(job))
+        job["stage"] = old
 
     if stage in TERMINAL:
         for p in job.get("packages", []):
@@ -926,7 +952,9 @@ def advance(job, stage):
             if not qa_pushed:
                 git_in(QA_PATH, "branch", "-D", job["branch"], check=False)
 
+    job["active_seconds"] = active_seconds(job)  # for the stage it leaves
     job["stage"] = stage
+    job["stage_since"] = now()
     job["pending"] = None
     job["ended"] = now() if stage in TERMINAL | WAITING else None
     return job
@@ -959,6 +987,7 @@ def cmd_create(text, title=None):
         "intake": None, "agents": None, "packages": [], "gate": None, "reviews": {},
         "decision": None, "answered": False, "pending": None, "spec_sha": None, "qa_worktree": None,
         "cost_usd": 0.0, "unpriced_models": [], "started": now(), "ended": None,
+        "round_reviewers": {}, "stage_since": now(), "active_seconds": 0,
     }
     save(job)
     print(job_id)
@@ -1116,9 +1145,7 @@ def cmd_agents(job, spec):
 
 
 def elapsed(job):
-    start = datetime.fromisoformat(job["started"].replace("Z", "+00:00"))
-    end = datetime.fromisoformat(job["ended"].replace("Z", "+00:00")) if job["ended"] else datetime.now(timezone.utc)
-    minutes = int((end - start).total_seconds() // 60)
+    minutes = active_seconds(job) // 60
     return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m"
 
 

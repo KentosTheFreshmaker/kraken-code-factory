@@ -106,7 +106,7 @@
   .links { display: flex; flex-wrap: wrap; gap: 4px 10px; font-family: var(--mono); font-size: 11px; min-width: 0; }
   .links a { color: var(--active); text-decoration: none; }
   .links a:hover { text-decoration: underline; }
-  .meta { display: flex; gap: 10px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .meta .risk-high { color: var(--human); } .meta .risk-medium { color: var(--changes); }
   .branch {
     font-family: var(--mono); font-size: 11px; color: var(--faint); max-width: 100%;
@@ -368,7 +368,7 @@ async function roundVerdicts(job, n) {
   if (v.gate === 'PASS') {
     // The routed set can grow between rounds: a past round shows who reviewed it.
     const names = Object.keys(job.agents?.reviewers || {})
-      .filter((r) => current || files.has(`review-${r}.md`))
+      .filter((r) => job.round_reviewers?.[n]?.includes(r) ?? (current || files.has(`review-${r}.md`)))
     const verdicts = await Promise.all(names.map((r) => read(`review-${r}.md`, VERDICT)))
     names.forEach((r, i) => { v.reviews[r] = verdicts[i] })
   }
@@ -421,9 +421,18 @@ function packageRow(job) {
 
 const minutes = (min) => (min >= 60 ? `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}m` : `${min}m`)
 
+const since = (stamp, end = now()) => Math.max(0, (end - new Date(stamp)) / 1000)
+const duration = (seconds) => minutes(Math.floor(seconds / 60))
+
+// Time in running stages: not queued, and not waiting on you. Same as bin/job.
 function elapsed(job) {
-  const end = job.ended ? new Date(job.ended) : now()
-  return minutes(Math.max(0, Math.floor((end - new Date(job.started)) / 60000)))
+  if (!job.stage_since) return duration(since(job.started, job.ended ? new Date(job.ended) : now()))
+  return duration((job.active_seconds || 0) + (LIVE.has(job.stage) ? since(job.stage_since) : 0))
+}
+
+function times(job) {
+  if (!job.stage_since || TERMINAL.has(job.stage)) return elapsed(job)
+  return `${elapsed(job)} · ${duration(since(job.stage_since))} here`
 }
 
 // An approved job that has no slot yet waits on the factory, not on you.
@@ -460,7 +469,9 @@ function links(job) {
   if (job.agents && job.branch) { // routed: the branch exists from spec on
     out.push(`<span class="branch" title="${esc(job.branch)}">${esc(job.branch)}</span>`)
   }
-  const [cls, mark] = DECISION[job.decision] || []
+  // Before the approver decides, a decision can only be an older round's.
+  const decided = !['build', 'gate', 'review'].includes(job.stage)
+  const [cls, mark] = (decided && DECISION[job.decision]) || []
   if (cls) out.push(`<span class="chip ${cls}" title="decision.md">${mark} ${esc(job.decision)}</span>`)
   return out.join('')
 }
@@ -490,7 +501,7 @@ function card(job, verdicts) {
       <p class="feature">${esc(job.title)}</p>
       <div class="links">${links(job)}</div>
       ${rows ? `<div class="rounds">${rows}</div>` : ''}
-      <div class="meta">${risk ? `<span class="risk-${esc(risk)}">${esc(risk)}</span>` : ''}${cost(job)}<span data-time></span></div>
+      <div class="meta">${risk ? `<span class="risk-${esc(risk)}">${esc(risk)}</span>` : ''}${cost(job)}<span data-time title="running time · time in this stage"></span></div>
       ${hint(job) ? `<div class="hint">${hint(job)}</div>` : ''}
     </article>`
 }
@@ -520,7 +531,7 @@ function drawCard(job, verdicts) {
     if (focused) el.focus()
   }
   const time = d.el.querySelector('[data-time]')
-  if (time.textContent !== elapsed(job)) time.textContent = elapsed(job)
+  if (time.textContent !== times(job)) time.textContent = times(job)
   return d.el
 }
 
@@ -638,7 +649,7 @@ async function refreshDrawer() {
   if (!job) return
   const wanted = openPath
   const stale = () => openJobId !== job.id || openPath !== wanted // the user moved on meanwhile
-  $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''} · $${Number(job.cost_usd || 0).toFixed(2)} · ${elapsed(job)}`
+  $('d-num').textContent = `${job.id} · ${job.stage}${job.round ? ` · round ${job.round}` : ''} · $${Number(job.cost_usd || 0).toFixed(2)} · ${times(job)}`
   $('d-title').textContent = job.title
   $('d-links').innerHTML = links(job)
 

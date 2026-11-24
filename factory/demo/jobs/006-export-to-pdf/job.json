@@ -34,5 +34,8 @@
   "cost_usd": 3.3,
   "unpriced_models": [],
   "started": "2026-01-15T04:00:00Z",
-  "ended": "2026-01-15T11:30:00Z"
+  "ended": "2026-01-15T11:30:00Z",
+  "round_reviewers": {},
+  "stage_since": "2026-01-15T11:30:00Z",
+  "active_seconds": 16200
 }
