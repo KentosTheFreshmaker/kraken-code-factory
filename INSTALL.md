@@ -54,7 +54,7 @@ branch isn't `main`, add the same `git push` deny entries for it (for
 `git push -u origin master`). Then
 `chmod +x factory/checks.sh factory/preview.sh factory/bin/job factory/bin/gate factory/bin/route`.
 
-Don't copy `README.md`, `DESIGN.md`, `INSTALL.md` or `LICENSE`.
+Don't copy `README.md`, `DESIGN.md`, `INSTALL.md`, `LICENSE` or `factory/demo/`.
 
 ## 2. Adapt
 

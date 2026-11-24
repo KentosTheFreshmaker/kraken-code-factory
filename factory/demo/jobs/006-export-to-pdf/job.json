@@ -1,0 +1,38 @@
+{
+  "id": "006-export-to-pdf",
+  "number": 6,
+  "title": "Export a note to PDF",
+  "branch": "factory/006-export-to-pdf",
+  "worktree": "/demo/.worktrees/006-export-to-pdf",
+  "stage": "needs-human",
+  "round": 3,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "low",
+    "surfaces": [
+      "backend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "backend": "sonnet"
+    }
+  },
+  "packages": [],
+  "gate": "FAIL",
+  "reviews": {},
+  "decision": "ESCALATE",
+  "answered": false,
+  "pending": "build",
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 3.3,
+  "unpriced_models": [],
+  "started": "2026-01-15T04:00:00Z",
+  "ended": "2026-01-15T11:30:00Z"
+}

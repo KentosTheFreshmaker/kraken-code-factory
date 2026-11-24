@@ -1,0 +1,42 @@
+{
+  "id": "009-search-filters",
+  "number": 9,
+  "title": "Filter search results",
+  "branch": "factory/009-search-filters",
+  "worktree": "/demo/.worktrees/009-search-filters",
+  "stage": "gate",
+  "round": 2,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "medium",
+    "surfaces": [
+      "frontend",
+      "backend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "ux": "sonnet",
+      "ui": "haiku",
+      "appsec": "opus",
+      "backend": "sonnet"
+    }
+  },
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 3.91,
+  "unpriced_models": [],
+  "started": "2026-01-15T10:50:00Z",
+  "ended": null
+}

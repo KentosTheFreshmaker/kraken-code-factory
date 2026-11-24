@@ -1,0 +1,39 @@
+{
+  "id": "014-import-markdown",
+  "number": 14,
+  "title": "Import a folder of Markdown",
+  "branch": "factory/014-import-markdown",
+  "worktree": "/demo/.worktrees/014-import-markdown",
+  "stage": "spec-review",
+  "round": 0,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "low",
+    "surfaces": [
+      "backend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "backend": "sonnet",
+      "appsec": "opus"
+    }
+  },
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": "build",
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 0.71,
+  "unpriced_models": [],
+  "started": "2026-01-15T11:05:00Z",
+  "ended": "2026-01-15T11:35:00Z"
+}

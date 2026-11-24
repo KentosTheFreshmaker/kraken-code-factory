@@ -1,0 +1,99 @@
+{
+  "id": "010-tag-notes",
+  "number": 10,
+  "title": "Tag notes",
+  "branch": "factory/010-tag-notes",
+  "worktree": "/demo/.worktrees/010-tag-notes",
+  "stage": "build",
+  "round": 1,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": true,
+    "risk": "medium",
+    "surfaces": [
+      "frontend",
+      "backend",
+      "database"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "ux": "sonnet",
+      "ui": "haiku",
+      "appsec": "opus",
+      "backend": "sonnet",
+      "dba": "sonnet"
+    }
+  },
+  "packages": [
+    {
+      "id": "wp1",
+      "title": "Schema",
+      "area": "db",
+      "owns": [
+        "db/*"
+      ],
+      "depends": [],
+      "status": "done",
+      "branch": "factory/010-tag-notes-wp1",
+      "worktree": "/demo/.worktrees/010-tag-notes-wp1",
+      "start_commit": null
+    },
+    {
+      "id": "wp2",
+      "title": "API",
+      "area": "api",
+      "owns": [
+        "api/*"
+      ],
+      "depends": [],
+      "status": "building",
+      "branch": "factory/010-tag-notes-wp2",
+      "worktree": "/demo/.worktrees/010-tag-notes-wp2",
+      "start_commit": null
+    },
+    {
+      "id": "wp3",
+      "title": "Tag picker",
+      "area": "ui",
+      "owns": [
+        "ui/*"
+      ],
+      "depends": [],
+      "status": "building",
+      "branch": "factory/010-tag-notes-wp3",
+      "worktree": "/demo/.worktrees/010-tag-notes-wp3",
+      "start_commit": null
+    },
+    {
+      "id": "wp4",
+      "title": "Tag search",
+      "area": "search",
+      "owns": [
+        "search/*"
+      ],
+      "depends": [],
+      "status": "pending",
+      "branch": "factory/010-tag-notes-wp4",
+      "worktree": "/demo/.worktrees/010-tag-notes-wp4",
+      "start_commit": null
+    }
+  ],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 1.76,
+  "unpriced_models": [
+    "example-model"
+  ],
+  "started": "2026-01-15T11:20:00Z",
+  "ended": null
+}

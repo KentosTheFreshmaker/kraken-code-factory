@@ -1,0 +1,32 @@
+{
+  "id": "002-rewrite-in-cobol",
+  "number": 2,
+  "title": "Rewrite the app in COBOL",
+  "branch": "factory/002-rewrite-in-cobol",
+  "worktree": "/demo/.worktrees/002-rewrite-in-cobol",
+  "stage": "rejected",
+  "round": 0,
+  "round_limit": 3,
+  "intake": {
+    "decision": "REJECT",
+    "rescoped": false,
+    "split": false,
+    "risk": "high",
+    "surfaces": [
+      "backend"
+    ]
+  },
+  "agents": null,
+  "packages": [],
+  "gate": null,
+  "reviews": {},
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 0.11,
+  "unpriced_models": [],
+  "started": "2026-01-13T13:20:00Z",
+  "ended": "2026-01-13T13:25:00Z"
+}

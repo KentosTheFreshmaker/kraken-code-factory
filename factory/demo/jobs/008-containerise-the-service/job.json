@@ -1,0 +1,55 @@
+{
+  "id": "008-containerise-the-service",
+  "number": 8,
+  "title": "Run the service in a container",
+  "branch": "factory/008-containerise-the-service",
+  "worktree": "/demo/.worktrees/008-containerise-the-service",
+  "stage": "review",
+  "round": 1,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": false,
+    "risk": "high",
+    "surfaces": [
+      "ops",
+      "backend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "backend": "sonnet",
+      "dba": "sonnet",
+      "ops": "sonnet",
+      "appsec": "opus",
+      "opsec": "opus",
+      "ux": "sonnet",
+      "ui": "haiku"
+    }
+  },
+  "packages": [],
+  "gate": "PASS",
+  "reviews": {
+    "quality": "PASS",
+    "bugs": "CHANGES",
+    "backend": "PASS",
+    "dba": "pending",
+    "ops": "PASS",
+    "appsec": "invalid",
+    "opsec": "pending",
+    "ux": "pending",
+    "ui": "pending"
+  },
+  "decision": null,
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 6.05,
+  "unpriced_models": [],
+  "started": "2026-01-15T10:40:00Z",
+  "ended": null
+}

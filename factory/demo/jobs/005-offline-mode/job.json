@@ -1,0 +1,82 @@
+{
+  "id": "005-offline-mode",
+  "number": 5,
+  "title": "Work offline and sync later",
+  "branch": "factory/005-offline-mode",
+  "worktree": "/demo/.worktrees/005-offline-mode",
+  "stage": "needs-human",
+  "round": 1,
+  "round_limit": 3,
+  "intake": {
+    "decision": "ACCEPT",
+    "rescoped": false,
+    "split": true,
+    "risk": "medium",
+    "surfaces": [
+      "frontend",
+      "backend"
+    ]
+  },
+  "agents": {
+    "reviewers": {
+      "quality": "sonnet",
+      "bugs": "opus",
+      "ux": "sonnet",
+      "ui": "haiku",
+      "appsec": "opus",
+      "backend": "sonnet"
+    }
+  },
+  "packages": [
+    {
+      "id": "wp1",
+      "title": "Local store",
+      "area": "store",
+      "owns": [
+        "store/*"
+      ],
+      "depends": [],
+      "status": "done",
+      "branch": "factory/005-offline-mode-wp1",
+      "worktree": "/demo/.worktrees/005-offline-mode-wp1",
+      "start_commit": null
+    },
+    {
+      "id": "wp2",
+      "title": "Sync engine",
+      "area": "sync",
+      "owns": [
+        "sync/*"
+      ],
+      "depends": [],
+      "status": "blocked",
+      "branch": "factory/005-offline-mode-wp2",
+      "worktree": "/demo/.worktrees/005-offline-mode-wp2",
+      "start_commit": null
+    },
+    {
+      "id": "wp3",
+      "title": "Status bar",
+      "area": "ui",
+      "owns": [
+        "ui/*"
+      ],
+      "depends": [],
+      "status": "pending",
+      "branch": "factory/005-offline-mode-wp3",
+      "worktree": "/demo/.worktrees/005-offline-mode-wp3",
+      "start_commit": null
+    }
+  ],
+  "gate": null,
+  "reviews": {},
+  "decision": "ESCALATE",
+  "answered": false,
+  "pending": null,
+  "spec_sha": null,
+  "qa_worktree": null,
+  "cost_usd": 4.62,
+  "unpriced_models": [],
+  "started": "2026-01-15T03:40:00Z",
+  "ended": "2026-01-15T08:40:00Z"
+}
