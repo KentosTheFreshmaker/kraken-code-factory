@@ -94,6 +94,9 @@ spec (whose title can predate your feedback). It approves only when:
 - new behaviour has tests (on the QA branch when `qa_repo` is set);
 - the change follows the decisions you approved at spec review.
 
+Each decision covers one round: when feedback starts a new one, the old file
+becomes `decision-<k>.md` and the approver must write a fresh one.
+
 It also writes **Upgrade notes** (what whoever deploys must do: config, migrations,
 restarts, anything irreversible), **QA changes** and **Companion changes**,
 which go into the PR description, and **Follow-ups**: work outside the job,
@@ -200,13 +203,20 @@ cd factory && python3 -m http.server
 
 Open <http://localhost:8000/dashboard.html>.
 
+Each job is a card with its status, its gate and review chips per round, risk,
+cost, running time and time in the current stage. Click a card to read every
+file the job wrote. Cost is the API-equivalent price of the job's agents, read
+from Claude Code's transcripts; `+` means some models have no price in
+`config.json`.
+
 <http://localhost:8000/dashboard.html?demo> shows invented sample jobs instead
 of yours, covering every stage and indicator. They live in `factory/demo/jobs/`;
 `factory/demo/make` regenerates them.
 
 Chips read `✓` pass, `!` changes wanted, `✕` failed or blocked, `…` running,
 `·` not started, `?` a file whose first line isn't a verdict. Finished rounds
-collapse their passes into one chip. Red borders are jobs waiting on you.
+collapse their passes into one chip. Red borders are jobs waiting on you; an
+orange `open PR` is a branch ready for your PR.
 
 ## Safety
 
@@ -225,25 +235,63 @@ collapse their passes into one chip. Red borders are jobs waiting on you.
 
 ## What changed from the original
 
-Modified in November 2026 from the upstream v2 release:
+Modified in November 2026 from the
+[upstream v2 release](https://github.com/zazencodes/zazencodes-season-3/tree/main/src/software-factory-claude-code-v2).
 
-- Requests come from prompts (`/factory new`) instead of GitHub issues; there is
-  no GitHub integration and no `gh` use.
-- Intake runs on Opus instead of Fable.
-- Every spec stops for operator review before it is built.
-- The approver approves or denies and never merges. The factory pushes the
-  feature branch and drafts `PR.md`; a human opens and merges the PR.
-- Specs can split into work packages built by parallel builders with enforced
-  file ownership.
-- The reviewer set is replaced: quality, bugs, backend, dba, ops, ux, ui,
-  appsec and opsec, routed by intake's surfaces and by the paths the diff
-  touches. Defects in touched code are fixed in the job, and the approver
-  denies while any review Note still describes one.
+| | Original v2 | This version |
+|---|---|---|
+| Requests | GitHub issues labeled `factory` | prompts: `/factory new <request>` |
+| GitHub | `gh` for issues, labels, comments and PRs | `git push` of the feature branch only; no `gh` |
+| Intake | Fable | Opus |
+| Spec | goes straight to the builder | stops for your review first |
+| Builders | one per job | one, or parallel work packages plus an integration builder |
+| Reviewers | code, security, ux, ui | quality, bugs, backend, dba, ops, ux, ui, appsec, opsec |
+| Review routing | intake's risk and surfaces | the same, plus the paths the diff touches |
+| Approver | APPROVE merges the PR; ESCALATE hands it to you | APPROVE or DENY; never merges |
+| Output | a merged PR, or one ready for you | a pushed branch, `PR.md` and `REVIEW.md` |
+| End of a job | `merged` or `rejected` | `ready` then `closed`, or `rejected` |
+| Protected paths | `checks.sh`, `config.json` | all of `factory/` and `.claude/` |
+| Default `concurrency` | 3 | 2 |
+
+**Requests and intake**
+
+- Requests wait in a local queue. Intake asks its questions in your session
+  instead of commenting on an issue.
+
+**Specs and building**
+
+- Your spec approval is pinned to the spec's hash. The spec writer lists the
+  decisions that are yours instead of making them.
+- Work packages have enforced file ownership.
+- An optional paired QA repository holds the tests and gates every change.
+  Companion changes (docs, infra, other environments) are reported separately.
+
+**Review and approval**
+
+- Defects in touched code are fixed in the job, and the approver denies while
+  any review Note still describes one.
+- A new round archives the previous `decision.md` as `decision-<k>.md`, so an
+  old approval never counts for later work.
+- A `ready` job can go back to the builder with your feedback, for example from
+  your PR review.
 - PR descriptions are rendered from your template, with a Testing list built
   from the gate log; the factory's own notes go to `REVIEW.md`.
-- An optional paired QA repository holds the tests and gates every change;
-  companion changes (docs, infra, other environments) are reported
-  separately.
+
+**Dashboard and job state**
+
+- Columns for the new stages, and a status line on every card. Jobs waiting on
+  you are told apart from approved jobs waiting for a slot.
+- Chips carry symbols as well as colors, wrap inside the card, and collapse for
+  finished rounds. Work packages and decisions have chips too.
+- `job.json` records each round's reviewers, when the current stage began and the running time, so
+  the time shown leaves out queueing and waiting on you.
+- A bad `job.json` or a lost server is reported without clearing the board.
+- `dashboard.html?demo` shows sample jobs.
+
+**Safety and tooling**
+
+- `.claude/settings.json` denies `gh pr` create, ready and merge, `gh api`,
+  force-pushes and pushes to `main`.
 - An optional, operator-only `factory/preview.sh` runs a local preview of a
   job's branch.
 - The upstream example jobs and promotional assets are removed.
